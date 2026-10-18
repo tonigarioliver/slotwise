@@ -33,9 +33,9 @@ This brings up:
   `docker compose up -d --force-recreate keycloak`. Admin console: `http://localhost:8081` (`admin`/`admin`).
 - **OpenTelemetry Collector** on `localhost:4317`/`4318` (OTLP gRPC/HTTP) and **Grafana** on `http://localhost:3000`
   (no login locally): the services send their traces and logs to the Collector, which forwards them to Grafana's Tempo and
-  Loki. Open the *Slotwise — reservations & notifications* dashboard to see reservations, conflicts and notifications
-  (counted from the log lines), or *Explore* to search the logs and traces. Data is ephemeral: it disappears when the
-  `lgtm` container is recreated.
+  Loki. Open the *Slotwise — reservations & notifications* dashboard (and *metrics*) to see reservations, conflicts and notifications
+  (counters of our own, registered at 0), or *Explore* to search the logs and traces. Five alert rules (service down, 5xx rate, failed notifications) are loaded too: see *Alerting > Alert rules* (they only change state, nothing is sent). Data is ephemeral: it disappears when the
+  `lgtm` container is recreated. Each web service answers `/actuator/health` and `/actuator/info` without a token.
 
 Wait until `docker compose logs keycloak` shows `Keycloak ... started in ...s` before
 continuing — the realm import happens during that startup.
@@ -68,9 +68,8 @@ To build a service as a container image (the infrastructure above runs in Compos
 docker build --build-arg SERVICE=audit-service -t slotwise/audit-service .
 ```
 
-The image sends its traces, logs and metrics to a Collector named `otel-collector`; to try it next to the Compose stack from your machine, use
-`--network host` and point it at `localhost` with `-e MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://localhost:4318/v1/traces` (and the
-`..._LOGGING_...` and `MANAGEMENT_OTLP_METRICS_EXPORT_URL` equivalents).
+The image sends its traces, logs and metrics to the Collector at `COLLECTOR_URL` (default `http://otel-collector:4318`, the name the Collector will have in Compose). To try it next to
+the Compose stack from your machine, use `--network host` and point it at `localhost`: `-e COLLECTOR_URL=http://localhost:4318`.
 
 ## 3. Get a token
 

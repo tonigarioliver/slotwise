@@ -36,9 +36,9 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
   (`keycloak/realm-export.json`, role `view-users`): after editing the realm file you must
   `docker compose up -d --force-recreate keycloak`.
 - `otel/collector-config.yaml` + `grafana/` — the OpenTelemetry Collector pipeline (traces, logs, metrics -> `grafana/otel-lgtm`) and the
-  provisioned dashboards (`slotwise.json` from log lines, `slotwise-metrics.json` from Micrometer metrics). Services -> Collector over OTLP, never straight to a backend.
+  provisioned dashboards (`slotwise.json` from our business counters, `slotwise-metrics.json` from Micrometer metrics) and the alert rules (`provisioning/alerting`). Services -> Collector over OTLP, never straight to a backend.
 - `Dockerfile` (repo root, one for the three services): `docker build --build-arg SERVICE=<module> -t slotwise/<module> .`; multi-stage, a JRE and the
-  Spring Boot jar. Telemetry endpoints are `MANAGEMENT_OPENTELEMETRY_*` / `MANAGEMENT_OTLP_METRICS_EXPORT_URL` env vars (default host `otel-collector`).
+  Spring Boot jar. The Collector address is the `COLLECTOR_URL` env var (default `http://otel-collector:4318` in the image).
   The services are not in `docker-compose.yml` yet (see decisions.md). An OpenTelemetry **Java agent** variant lives on the local branch `experiment/otel-agent`.
 - `docker-compose.yml` — local Postgres 17 (`slotwise`/`slotwise`/`slotwise`) and
   Keycloak 26 (OIDC Authorization Server, port `8081`, realm auto-imported from
@@ -161,6 +161,13 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
   built by hand from `kafkaProperties.buildProducerProperties()` (the DLT one in `KafkaErrorHandlingAutoConfiguration`) connects to
   `localhost:9092` and times out in tests. Copy `DefaultKafkaProducerFactory#getConfigurationProperties()` of Boot's own
   factory instead. Also: `mvn -pl <service> test` needs `-am` (else `slotwise-events` is fetched from Central and fails).
+- **Business counters live in `BusinessMeters`** (`slotwise-observability`): enums + factory methods, never a raw string for a name or a tag value. Each service registers its counters at 0
+  with a `MeterBinder` bean (`BusinessMetersConfig`): a counter that only appears when first incremented loses that first event in Prometheus' `increase()`/`rate()` (an alert missed it). The dashboards and alert
+  rules hold the series names and tag values as text; `BusinessMetersContractTest` reads `grafana/` and fails if they mention something the code cannot emit. A new counter needs its enum value, a binder and a test.
+- **Telemetry defaults are one YAML in the module** (`slotwise-observability-defaults.yml`, lowest priority), so a service writes nothing; the Collector address is `COLLECTOR_URL` (default `http://localhost:4318`, the Docker image
+  sets `http://otel-collector:4318`). Actuator exposes only `health` (+ probes) and `info`, public in booking and audit `SecurityConfig`; notification-service has no web server.
+- **Grafana alert rules are provisioned from `grafana/provisioning/alerting/` but nothing is delivered** (no contact point). "Service down" is `time() - max(timestamp(jvm_memory_used_bytes{...}))` because pushed metrics have no `up`.
+  The `lgtm` container's data is ephemeral: `docker compose up -d lgtm` after a change to the mounted files recreates it.
 - **JDBC is not instrumented by Spring Boot**: its docs point to Datasource Micrometer (`datasource-micrometer-spring-boot` 2.x for Boot 4), which wraps *every*
   `DataSource` bean. `booking-service` has three (`primaryDataSource`, `replicaDataSource` and the outer `@Primary` `dataSource`, a
   `LazyConnectionDataSourceProxy` over the routing one): the outer one is excluded (`jdbc.excluded-data-source-bean-names`), otherwise every query is recorded twice. The pools

@@ -4,8 +4,8 @@ icon: lucide/images
 
 # What we built
 
-Slotwise end to end, with real output from a local run: one request followed through three services, a dashboard built
-from the logs, and the tests behind it. Everything below comes from the stack in `docker-compose.yml` and the demo traffic
+Slotwise end to end, with real output from a local run: one request followed through three services, dashboards on counters and
+metrics, alerts, and the tests behind it. Everything below comes from the stack in `docker-compose.yml` and the demo traffic
 in `scripts/demo-traffic.sh`.
 
 ## One request, followed end to end
@@ -27,13 +27,13 @@ The trace below is that whole path as OpenTelemetry recorded it (26 spans, 3 ser
   service, each with its own insert (into `slotwise`, `slotwise_audit` and `slotwise_notification`). A trace that is complete across the
   outbox is the point of the exercise.
 
-## A dashboard built from the logs
+## Business counters, and a dashboard on them
 
-Logs travel by OTLP to an OpenTelemetry Collector and from there to Loki. The dashboard counts the log lines that matter
-(`Created reservation`, `Reservation conflict`, `Notification sent to`, `failed permanently`), provisioned from
-`grafana/dashboards/slotwise.json`:
+The numbers that matter to the business are counters of our own: `slotwise.reservations{outcome=created|conflict}`, `slotwise.notifications{outcome=sent|retry|failed}` and
+`slotwise.events.duplicates{consumer}`. They are Micrometer meters, pushed over OTLP like every other metric and **registered at 0 when the service starts**. The dashboard
+reads them from Prometheus (`grafana/dashboards/slotwise.json`); only its two log panels still read the logs, by level and not by message text:
 
-![Grafana dashboard: reservations created, conflicts, notifications sent and failed, per-minute charts and recent warnings](assets/grafana-dashboard.png)
+![Grafana dashboard: reservations created, conflicts, notifications sent and failed from counters, per-minute charts, duplicates and recent warnings](assets/grafana-dashboard.png)
 
 The demo traffic behind these numbers (`scripts/demo-traffic.sh`):
 
@@ -45,15 +45,15 @@ The demo traffic behind these numbers (`scripts/demo-traffic.sh`):
 | `bob` (user) creating a resource, and booking for someone else | `403` | not in the dashboard: no event is published |
 | the emails of the 6 reservations by `alice` | sent | *Notifications sent* (6) |
 
-!!! warning "It counts log text"
+!!! note "Why the counters start at 0"
 
-    The panels are `count_over_time` over log messages. If someone rewrites `Created reservation`, a panel silently drops
-    to zero. Business counters (Micrometer) would be the robust alternative; see
-    [Decisions](decisions.md#observability-stack-collector-grafana-lgtm-and-a-dashboard-built-from-logs-fase-4).
+    A counter that only appears when it is first incremented has no earlier sample for Prometheus to compare with, so `increase()` loses that first event. It was
+    seen here: a failed notification counted `1` but `increase()` said `0`, and the alert on it did not fire. Each service now registers its counters at start-up
+    (`MeterBinder`), which fixed both. See [Decisions](decisions.md#business-counters-alerts-and-actuator-fase-4).
 
 ## Real application metrics
 
-The log-derived dashboard above counts text. This one is built from **actual metrics**: Micrometer's meters (HTTP server, JVM, Hikari, Kafka client)
+The dashboard above shows counters of our own. This one shows what Micrometer measures **by itself**: its meters (HTTP server, JVM, Hikari, Kafka client)
 pushed over OTLP to the Collector and stored in Prometheus (`grafana/dashboards/slotwise-metrics.json`):
 
 ![Grafana metrics dashboard: HTTP requests by status, latency by route, JVM heap, DB connections per pool, Kafka records consumed](assets/grafana-metrics.png)
@@ -63,6 +63,17 @@ pushed over OTLP to the Collector and stored in Prometheus (`grafana/dashboards/
 - **DB connections acquired per minute**: the constant ~60 per minute on `primary` is the `OutboxRelay` polling the outbox table every second;
   the orange bars are reads served by the `replica`.
 - **Average latency by route**, **JVM heap by service** and **Kafka records consumed** come from the same pipeline, with no code of ours behind them.
+
+## Alerts
+
+Five alert rules are provisioned in Grafana from `grafana/provisioning/alerting/slotwise-alerts.yaml`: one **service down** rule per service (no metrics for 90 s, which also fires if the
+Collector is unreachable), the **5xx error rate** above 5 %, and **notifications failing for good** (a business counter). The screenshot was taken while that last one was firing,
+after the demo traffic gave a notification an owner that does not exist in Keycloak:
+
+![Grafana alert rules: four normal and one firing](assets/grafana-alerts.png)
+
+Both kinds were tried for real: stopping `notification-service` turned its *service down* rule to firing about two and a half minutes later (and back to normal when it came back), and the
+failed notification fired its rule within a minute. They only change state: no contact point is configured, so nothing is sent anywhere yet.
 
 ## Searching the logs
 
@@ -85,20 +96,28 @@ POST /api/reservations     (bob, owner = someone else)
                                     ->  403  {"message":"User <bob's sub> cannot book on behalf of someone-else (admin only)"}
 ```
 
+```text
+GET  /actuator/health      (no token) ->  200  {"groups":["liveness","readiness"],"status":"UP"}
+GET  /actuator/info        (no token) ->  200  {"app":{"name":"booking-service"}}
+GET  /actuator/env         (no token) ->  401
+```
+
+Only `health` and `info` are public (the probes Kubernetes will want, and the service name); the rest of Actuator is not even exposed.
+
 The `409` is the `reservations_no_overlap` constraint plus a `SELECT ... FOR UPDATE` on the resource row (see Fase 2 in the
 [roadmap](roadmap.md)); the `403`s come from Keycloak roles mapped to Spring Security authorities.
 
 ## The tests behind it
 
-The last full `mvn test` run, on Spring Boot 4.1.1: **55 tests, all passing**, against real Testcontainers (Postgres, Redis, Kafka) rather than mocks.
+The last full `mvn test` run, on Spring Boot 4.1.1: **69 tests, all passing**, against real Testcontainers (Postgres, Redis, Kafka) rather than mocks.
 
 | Module | Tests | What stands out |
 |---|---|---|
-| `booking-service` | 22 | two concurrent overlapping reservations: only one wins; the request's trace survives the outbox and Kafka (`create_continuesTheRequestTraceThroughOutboxAndKafka`); a poison message does not block the consumer; Redis write-through is immediate |
-| `audit-service` | 10 | a duplicate event is stored once; a poison message lands on the dead-letter topic with its original bytes |
-| `notification-service` | 19 | the inbox worker's retries, the Keycloak client, idempotent listener |
+| `booking-service` | 27 | two concurrent overlapping reservations: only one wins; the request's trace survives the outbox and Kafka (`create_continuesTheRequestTraceThroughOutboxAndKafka`); a poison message does not block the consumer; Redis write-through is immediate; the reservation counters count only what committed; `health`/`info` are public and `env` is not |
+| `audit-service` | 14 | a duplicate event is stored once; a poison message lands on the dead-letter topic with its original bytes |
+| `notification-service` | 20 | the inbox worker's retries, the Keycloak client, idempotent listener |
 | `slotwise-kafka-support` | 1 | a record that always fails is retried, then dead-lettered to `reservation-events.DLT` (and it proves the auto-configuration activates itself) |
-| `slotwise-observability` | 3 | the default properties are added with the lowest priority, so a service's own config wins |
+| `slotwise-observability` | 7 | the default properties are added with the lowest priority (and one variable, `COLLECTOR_URL`, moves the three telemetry endpoints); the business counters exist at 0 from start-up; the Grafana dashboards and alert rules only mention series and tag values that the code can really emit |
 
 ## Reproduce it
 

@@ -1478,7 +1478,7 @@ shows logs, traces and metrics together and links a log to its trace by `trace_i
   `OpenTelemetryLogbackAutoConfiguration` installs the `OpenTelemetry` bean into it. Each log record carries
   `trace_id`/`span_id`. The appender's version is chosen on purpose (`2.28.1-alpha` since the move to Boot 4.1.1): it is the instrumentation release built against the SDK Boot manages (1.62.0;
   it was `2.21.0-alpha` for 1.55.0 under Boot 4.0.1). The BOM does not manage the instrumentation artifacts.
-- **The dashboard comes from log lines** (`grafana/dashboards/slotwise.json`, provisioned from the repo through a second provider
+- **The dashboard came from log lines** (superseded: it now reads counters, see "Business counters, alerts and Actuator" at the end) (`grafana/dashboards/slotwise.json`, provisioned from the repo through a second provider
   mounted in the image): reservations created/conflicts and notifications sent/retried/failed for good are `count_over_time`
   over lines such as `Created reservation`, `Reservation conflict`, `Notification sent to`, `failed permanently`.
   **It breaks if those messages change** — that is the accepted price of not touching the code. Chosen over business
@@ -1523,8 +1523,8 @@ tracing bridge turns into spans. Its documentation says nothing about a routing 
 - All four observation types are on, so a request has many small spans; `jdbc.includes: QUERY` would keep only the queries (left as is for now).
 
 **Dockerfile (first step of Fase 5).** One `Dockerfile` at the repo root, `--build-arg SERVICE=<module>`, two stages (Maven build with a BuildKit cache; JRE with the jar). No agent: the
-telemetry is the starter's, pointed at the Collector with `MANAGEMENT_OPENTELEMETRY_*` / `MANAGEMENT_OTLP_METRICS_EXPORT_URL` environment variables
-(defaults assume the Collector is reachable as `otel-collector`).
+telemetry is the starter's, pointed at the Collector with the `COLLECTOR_URL` environment variable
+(it defaults to `http://otel-collector:4318`). The three variables became one, `COLLECTOR_URL`, once the endpoints moved to the module's YAML (see the last section).
 - **The first image did not start** (`no main manifest attribute`): without `spring-boot-starter-parent` nothing binds `spring-boot:repackage` to `package`, so `mvn package`
   left an 18 KB jar with no `Main-Class`. Fixed once, in the root `pom.xml` `pluginManagement` (the thin jar is now `*.jar.original`).
 - **Verified**: the three images build (one `docker build` failed once on unpacking a layer and passed on retry) and `audit-service` run inside Docker (host network,
@@ -1552,4 +1552,39 @@ starter exports over OTLP (every 10 s, set in `slotwise-observability`), so unli
 What it shows when you try it: a burst of reads from one user returns `429` (the Redisson rate limiter), visible in the status panel; the connection panel shows ~60 acquisitions a
 minute on `primary` even when idle, which is the `OutboxRelay` polling every second; reads show up on `replica`. The Showcase page uses it, and its trace screenshot was redone to
 include the JDBC spans.
+
+## Business counters, alerts and Actuator (Fase 4)
+
+The reservations/notifications dashboard used to count *log lines*, which breaks if a message changes. It now reads counters of our own, there are alert rules, and the services expose
+Actuator `health`/`info`.
+
+**Counters** (`BusinessMeters`, in `slotwise-observability`): `slotwise.reservations{outcome=created|conflict}`, `slotwise.notifications{outcome=sent|retry|failed}`,
+`slotwise.events.duplicates{consumer=booking|audit|notification}` (Prometheus: `slotwise_reservations_total` and so on).
+- **Names and tag values are enums** with factory methods (`BusinessMeters.reservations(registry, ReservationOutcome.CREATED)`), not strings spread over the code: a typo in a tag value fails nowhere, it
+  creates another series, and an alert on `outcome="failed"` would never fire. The Grafana dashboards and alert rules can only hold the text, so `BusinessMetersContractTest` reads `grafana/` and
+  checks every `slotwise_*` series and every `outcome`/`consumer` value against the enums.
+- **Where each one is counted.** Reservations in `ReservationService`, the orchestrator with no transaction, so a rolled-back reservation is never counted as created (the conflict is counted
+  whether the overlap check or the DB constraint rejects it). Notifications in `NotificationWriteService`, where the status changes, because it is the only place that sees all three ways to end up
+  `FAILED` (a permanent error, the attempts used up, a lease that expired with none left); it counts when the status is set, not after the commit (one-row transactions). The duplicate counter is in the three
+  idempotent consumers; a real one showed up at the first restart.
+- **Registered at 0 at start-up.** A counter that only appears when first incremented has no earlier sample, so Prometheus' `increase()` and `rate()` lose that first event. Seen here: a failed notification counted
+  `1` while `increase()` said `0` (the alert never fired) and 7 reservations showed as 4.43. Each service has a `MeterBinder` bean that registers its counters at 0 (`BusinessMetersConfig`), which fixed both
+  (verified: `increase(failed[10m])` = 1.02). The per-service bean is because the counters are service-specific and the shared module cannot know the service; the alternative, each counting class registering its own, was
+  not done.
+- **The dashboard** (`slotwise.json`): stats and per-minute charts from the counters; the two log panels (warnings/errors by service and the recent ones) still read Loki, by level, not by message text.
+
+**Alerts** (`grafana/provisioning/alerting/slotwise-alerts.yaml`, Grafana-managed, loaded at start-up): *service down* per service (`time() - max(timestamp(jvm_memory_used_bytes{service_name=...}))` above 90 s, for 1 minute, no data
+counts as firing: metrics are pushed, there is no `up`), *5xx error rate* above 5 %, and *notifications failing for good* (`increase(slotwise_notifications_total{outcome="failed"}[5m]) > 0`). **Tried for real**: stopping
+`notification-service` turned its rule to firing in about 2.5 minutes and back to normal when it returned; the failed notification fired its rule within a minute. They only change state: **no contact point is configured**, so
+nothing is delivered (Grafana's default would be an email with no SMTP).
+
+**Actuator**: `spring-boot-starter-actuator` in the module; only `health` (with the liveness/readiness probes, for Fase 6) and `info` (the service name) are exposed, and only those two are public in `SecurityConfig` (booking and audit);
+`/actuator/env` stays `401`. `notification-service` has no web server, so it has no health endpoint. The `RateLimitFilter` also applies to these paths (and uses Redis), so the probes depend on it.
+
+**The telemetry defaults live in a YAML inside the module** (`slotwise-observability-defaults.yml`, loaded with the lowest priority by the `EnvironmentPostProcessor`), not in each service and not in a Java map: they read like an
+`application.yml`, every service inherits them and any of them can override. The Collector address is the one thing that changes with the environment, so the three endpoints use one variable,
+`${COLLECTOR_URL:http://localhost:4318}`; the Docker image sets `COLLECTOR_URL=http://otel-collector:4318` (inside a container `localhost` is the container; when the services join `docker-compose.yml` it belongs there).
+
+**Deliberately not done**: a contact point (email/webhook) for the alerts; a health endpoint for `notification-service`; build info in `/actuator/info`; counters of our own for HTTP errors (Micrometer already measures them);
+tracking the first-increment pitfall for counters added later (a new counter needs its binder, and nothing enforces it).
 

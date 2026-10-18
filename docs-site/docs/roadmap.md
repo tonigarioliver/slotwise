@@ -164,9 +164,10 @@ communicating via Kafka.
       notifications sent/failed, errors). See decisions.md ("Observability stack").
     - ~~Application metrics (Micrometer, exported by OTLP to Prometheus)~~ — done: JVM, HTTP server, Hikari pools (`primary`/`replica`) and
       Kafka client meters reach Prometheus, with their own dashboard (`slotwise-metrics.json`). See decisions.md ("A metrics dashboard...").
-    - **Business counters and alerts** (still pending): the reservations/notifications dashboard (`slotwise.json`) still counts *log lines*, which
-      breaks if a message changes; counters of our own (`MeterRegistry`, e.g. reservations created, notifications sent/failed) would replace that.
-      Alert rules (service down, error rate) and Actuator `health`/`info` are not done either.
+    - ~~Business counters, alert rules and Actuator `health`/`info`~~ — done: counters of our own (`BusinessMeters`, registered at 0) feed the reservations/notifications dashboard
+      instead of log lines; three kinds of alert rule are provisioned in Grafana and were tried (service down, 5xx rate, failed notifications); `health` (with probes) and `info`
+      are public in booking and audit. See decisions.md ("Business counters, alerts and Actuator"). Left: a contact point so the alerts are delivered, and a health endpoint for
+      `notification-service`.
 - [ ] User Service — **deferred**: not needed to notify (Keycloak already owns user data, and the
       Inbox worker looks the user up at send time). Revisit if the system needs user-owned data
       (e.g. notification preferences).
