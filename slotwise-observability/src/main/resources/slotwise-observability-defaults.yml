@@ -1,0 +1,59 @@
+# Defaults every service gets by depending on slotwise-observability. Loaded by ObservabilityDefaultsEnvironmentPostProcessor with the *lowest*
+# priority, so a service's own application.yml, an environment variable or the command line override anything here.
+
+management:
+  tracing:
+    sampling:
+      # Boot's default is 0.1: 9 of 10 requests would get a traceId nobody records. Fine for a learning project; lower it for real traffic.
+      probability: 1.0
+  # Where the telemetry goes: the OpenTelemetry Collector of docker-compose.yml, OTLP over HTTP. The address is the one thing that changes with
+  # the environment, hence one variable for the three signals: the Docker image sets COLLECTOR_URL=http://otel-collector:4318 (inside a container
+  # localhost is the container), another environment sets its own, e.g. an ADOT collector.
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${COLLECTOR_URL:http://localhost:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          # Logback -> OpenTelemetryAppender -> OTLP -> Collector -> Loki
+          endpoint: ${COLLECTOR_URL:http://localhost:4318}/v1/logs
+  otlp:
+    metrics:
+      export:
+        # Micrometer meters (JVM, HTTP, Hikari, Kafka and our business counters). 10s instead of Boot's 1m so a dashboard moves while you try things.
+        url: ${COLLECTOR_URL:http://localhost:4318}/v1/metrics
+        step: 10s
+  # Actuator: only health and info on the web (the default exposure would be health alone), with the liveness/readiness probes Kubernetes will
+  # want (Fase 6). Details of the health checks stay hidden.
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: ${spring.application.name}
+
+spring:
+  kafka:
+    # Spans and trace propagation through the message headers, producer and listener side.
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
+
+logging:
+  structured:
+    format:
+      # ECS (Elastic Common Schema) JSON, one object per line (@timestamp, log.level, service.name, traceId...): a log platform filters by
+      # field without parsing text.
+      console: ecs

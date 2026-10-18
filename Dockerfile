@@ -16,11 +16,9 @@ ARG SERVICE
 WORKDIR /app
 COPY --from=build /build/${SERVICE}/target/${SERVICE}-*.jar /app/app.jar
 
-# Telemetry is Spring Boot's own (spring-boot-starter-opentelemetry, see slotwise-observability): traces, logs and metrics go over
-# OTLP to the Collector. These defaults assume a container next to the Collector of docker-compose.yml (service name
-# otel-collector); override any of them with -e (e.g. http://localhost:4318/... with --network host).
-ENV MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces \
-    MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT=http://otel-collector:4318/v1/logs \
-    MANAGEMENT_OTLP_METRICS_EXPORT_URL=http://otel-collector:4318/v1/metrics
+# Telemetry is Spring Boot's own (spring-boot-starter-opentelemetry, see slotwise-observability): traces, logs and metrics go over OTLP to the
+# Collector, whose address is the one COLLECTOR_URL variable read by each service's application.yml. The default assumes a container next to the
+# Collector of docker-compose.yml (service name otel-collector); override it with -e (e.g. http://localhost:4318 with --network host).
+ENV COLLECTOR_URL=http://otel-collector:4318
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

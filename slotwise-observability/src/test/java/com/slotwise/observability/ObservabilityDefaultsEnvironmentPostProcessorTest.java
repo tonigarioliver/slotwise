@@ -20,12 +20,18 @@ class ObservabilityDefaultsEnvironmentPostProcessorTest {
         assertThat(environment.getProperty("management.tracing.sampling.probability")).isEqualTo("1.0");
         assertThat(environment.getProperty("spring.kafka.listener.observation-enabled")).isEqualTo("true");
         assertThat(environment.getProperty("logging.structured.format.console")).isEqualTo("ecs");
-        assertThat(environment.getProperty("management.opentelemetry.tracing.export.otlp.endpoint"))
-                .isEqualTo("http://localhost:4318/v1/traces");
-        assertThat(environment.getProperty("management.opentelemetry.logging.export.otlp.endpoint"))
-                .isEqualTo("http://localhost:4318/v1/logs");
-        assertThat(environment.getProperty("management.otlp.metrics.export.url"))
-                .isEqualTo("http://localhost:4318/v1/metrics");
+    }
+
+    // ...and one variable, COLLECTOR_URL, moves all three at once (what the Docker image does).
+    @Test
+    void collectorUrl_movesTheThreeEndpointsTogether() {
+        final var environment = new MockEnvironment().withProperty("COLLECTOR_URL", "http://otel-collector:4318");
+
+        this.processor.postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty("management.opentelemetry.tracing.export.otlp.endpoint")).isEqualTo("http://otel-collector:4318/v1/traces");
+        assertThat(environment.getProperty("management.opentelemetry.logging.export.otlp.endpoint")).isEqualTo("http://otel-collector:4318/v1/logs");
+        assertThat(environment.getProperty("management.otlp.metrics.export.url")).isEqualTo("http://otel-collector:4318/v1/metrics");
     }
 
     @Test
