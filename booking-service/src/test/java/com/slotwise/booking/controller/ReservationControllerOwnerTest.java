@@ -1,6 +1,7 @@
 package com.slotwise.booking.controller;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -95,5 +96,21 @@ class ReservationControllerOwnerTest {
         this.book(caller("sub-alice", "RESERVATION_ADMIN"), ",\"ownerSubject\":\"sub-bob\"")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.ownerSubject").value("sub-bob"));
+    }
+
+    // The Kubernetes-style probes and the build identity are the only public Actuator endpoints; nothing else of it is exposed.
+    @Test
+    void health_isPublic() throws Exception {
+        this.mockMvc.perform(get("/actuator/health")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    void info_isPublicAndNamesTheService() throws Exception {
+        this.mockMvc.perform(get("/actuator/info")).andExpect(status().isOk()).andExpect(jsonPath("$.app.name").value("booking-service"));
+    }
+
+    @Test
+    void otherActuatorEndpoints_stayProtected() throws Exception {
+        this.mockMvc.perform(get("/actuator/env")).andExpect(status().isUnauthorized());
     }
 }

@@ -106,4 +106,20 @@ class AuditEventControllerTest {
     void reservationUserRole_is403() throws Exception {
         this.mockMvc.perform(get("/api/audit-events").with(role("RESERVATION_USER"))).andExpect(status().isForbidden());
     }
+
+    // Same rule as booking-service: health and info are public, no other Actuator endpoint is.
+    @Test
+    void health_isPublic() throws Exception {
+        this.mockMvc.perform(get("/actuator/health")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    void info_isPublicAndNamesTheService() throws Exception {
+        this.mockMvc.perform(get("/actuator/info")).andExpect(status().isOk()).andExpect(jsonPath("$.app.name").value("audit-service"));
+    }
+
+    @Test
+    void otherActuatorEndpoints_stayProtected() throws Exception {
+        this.mockMvc.perform(get("/actuator/env")).andExpect(status().isUnauthorized());
+    }
 }

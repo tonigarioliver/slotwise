@@ -36,7 +36,10 @@ public class SecurityConfig {
                 // cross-site form/script can't attach on the victim's behalf. Safe to disable.
                 .csrf(CsrfConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                // Only the two Actuator endpoints that carry no data are public (liveness/readiness probes, build identity); the rest is as before.
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
                 // RateLimitFilter is deliberately not a bean (see its class comment) — built here
                 // instead, after the JWT filter so Authentication#getName() already has the subject.
