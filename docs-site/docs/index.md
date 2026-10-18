@@ -8,9 +8,11 @@ Booking/reservations platform used as the hands-on companion to a backend-senior
 roadmap: Spring Boot avanzado → PostgreSQL internals → Redis → Kafka → Docker →
 Kubernetes.
 
-This site tracks three things as the course progresses:
+This site tracks four things as the course progresses:
 
 - **[Getting started](getting-started.md)** — clone it, run it, hit the API locally.
+- **[Showcase](showcase.md)** — what has been built, with real screenshots: a trace across the three services, the dashboards, the API
+  answers and the tests.
 - **[Roadmap](roadmap.md)** — what's done, what's pending, phase by phase.
 - **[Decisions](decisions.md)** — non-obvious bugs and design calls worth remembering,
   so a future session (or future me) doesn't re-debug the same thing twice.
