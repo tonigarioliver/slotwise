@@ -162,8 +162,11 @@ communicating via Kafka.
     - ~~An exporter/collector to actually *see* the traces~~ — done: OTLP -> OpenTelemetry Collector -> Grafana LGTM
       (Tempo traces, Loki logs, Prometheus), logs also by OTLP, and a log-derived dashboard (reservations, conflicts,
       notifications sent/failed, errors). See decisions.md ("Observability stack").
-    - Application metrics (Micrometer counters/timers exported by OTLP to Prometheus) and alerts: today the dashboard only
-      counts log lines, which breaks if a message changes.
+    - ~~Application metrics (Micrometer, exported by OTLP to Prometheus)~~ — done: JVM, HTTP server, Hikari pools (`primary`/`replica`) and
+      Kafka client meters reach Prometheus, with their own dashboard (`slotwise-metrics.json`). See decisions.md ("A metrics dashboard...").
+    - **Business counters and alerts** (still pending): the reservations/notifications dashboard (`slotwise.json`) still counts *log lines*, which
+      breaks if a message changes; counters of our own (`MeterRegistry`, e.g. reservations created, notifications sent/failed) would replace that.
+      Alert rules (service down, error rate) and Actuator `health`/`info` are not done either.
 - [ ] User Service — **deferred**: not needed to notify (Keycloak already owns user data, and the
       Inbox worker looks the user up at send time). Revisit if the system needs user-owned data
       (e.g. notification preferences).
