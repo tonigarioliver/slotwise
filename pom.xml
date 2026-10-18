@@ -47,6 +47,16 @@
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring-boot.version}</version>
+                    <!-- spring-boot-starter-parent normally binds repackage to `package`; without it `mvn package`
+                         leaves a thin jar with no Main-Class and no dependencies (found building the Dockerfile). -->
+                    <executions>
+                        <execution>
+                            <id>repackage</id>
+                            <goals>
+                                <goal>repackage</goal>
+                            </goals>
+                        </execution>
+                    </executions>
                 </plugin>
                 <!-- Hoisted from booking-service: this project doesn't extend spring-boot-starter-parent,
                      so -parameters and the Lombok annotation processor wiring have to be declared

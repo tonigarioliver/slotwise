@@ -62,6 +62,16 @@ mvn -pl notification-service spring-boot:run   # no HTTP API; resolves the owner
 
 Start order doesn't matter: only `booking-service` creates the topic, the consumers wait for it.
 
+To build a service as a container image (the infrastructure above runs in Compose; the services are not in it yet):
+
+```bash
+docker build --build-arg SERVICE=audit-service -t slotwise/audit-service .
+```
+
+The image sends its traces, logs and metrics to a Collector named `otel-collector`; to try it next to the Compose stack from your machine, use
+`--network host` and point it at `localhost` with `-e MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://localhost:4318/v1/traces` (and the
+`..._LOGGING_...` and `MANAGEMENT_OTLP_METRICS_EXPORT_URL` equivalents).
+
 ## 3. Get a token
 
 Two users are pre-loaded, with different realm roles:

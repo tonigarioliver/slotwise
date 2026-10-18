@@ -1,0 +1,9 @@
+**/target
+.git
+.idea
+.claude
+.venv-docs
+docs
+docs-site
+grafana
+graphify-out
