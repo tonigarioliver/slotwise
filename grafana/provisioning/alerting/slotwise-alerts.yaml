@@ -1,0 +1,206 @@
+apiVersion: 1
+
+# Alert rules the Grafana in docker-compose.yml loads at start-up. They only change state (Normal / Pending / Firing, see Alerting > Alert rules):
+# no contact point is configured, so nothing is sent anywhere yet. Series names and tag values are checked against the code by
+# BusinessMetersContractTest (slotwise-observability).
+groups:
+  - orgId: 1
+    name: slotwise
+    folder: Slotwise
+    interval: 1m
+    rules:
+      - uid: slotwise-down-booking-service
+        title: "Service down: booking-service"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'time() - max(timestamp(jvm_memory_used_bytes{service_name="booking-service"}))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [90]}
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "booking-service has not reported metrics for more than 90 seconds (it is down or cannot reach the Collector)"
+        labels:
+          severity: critical
+      - uid: slotwise-down-audit-service
+        title: "Service down: audit-service"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'time() - max(timestamp(jvm_memory_used_bytes{service_name="audit-service"}))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [90]}
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "audit-service has not reported metrics for more than 90 seconds (it is down or cannot reach the Collector)"
+        labels:
+          severity: critical
+      - uid: slotwise-down-notification-service
+        title: "Service down: notification-service"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'time() - max(timestamp(jvm_memory_used_bytes{service_name="notification-service"}))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [90]}
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "notification-service has not reported metrics for more than 90 seconds (it is down or cannot reach the Collector)"
+        labels:
+          severity: critical
+      - uid: slotwise-http-5xx
+        title: "High HTTP error rate (5xx)"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'sum(rate(http_server_requests_milliseconds_count{status=~"5.."}[5m])) / sum(rate(http_server_requests_milliseconds_count[5m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [0.05]}
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "More than 5% of the HTTP requests of the last 5 minutes ended in a 5xx"
+        labels:
+          severity: critical
+      - uid: slotwise-notifications-failed
+        title: "Notifications failing for good"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'sum(increase(slotwise_notifications_total{outcome="failed"}[5m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              datasource: {type: __expr__, uid: __expr__}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+              datasource: {type: __expr__, uid: __expr__}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "At least one notification was given up on in the last 5 minutes (see the logs panel for the reason)"
+        labels:
+          severity: warning

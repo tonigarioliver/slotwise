@@ -97,6 +97,7 @@ services:
     volumes:
       - ./grafana/provisioning/slotwise-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/slotwise-dashboards.yaml:ro
       - ./grafana/dashboards:/otel-lgtm/slotwise-dashboards:ro
+      - ./grafana/provisioning/alerting/slotwise-alerts.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/slotwise-alerts.yaml:ro
 
 volumes:
   slotwise-postgres:

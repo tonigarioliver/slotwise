@@ -3,11 +3,11 @@
   "title": "Slotwise — reservations & notifications",
   "tags": [
     "slotwise",
-    "logs"
+    "business"
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": {
     "from": "now-1h",
@@ -20,8 +20,8 @@
       "type": "stat",
       "title": "Reservations created",
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -33,11 +33,12 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "expr": "sum(count_over_time({service_name=\"booking-service\"} |= \"Created reservation\" [$__range])) or vector(0)",
-          "queryType": "instant"
+          "expr": "sum(increase(slotwise_reservations_total{outcome=\"created\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -68,8 +69,8 @@
       "type": "stat",
       "title": "Reservation conflicts (409)",
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 6,
@@ -81,11 +82,12 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "expr": "sum(count_over_time({service_name=\"booking-service\"} |= \"Reservation conflict\" [$__range])) or vector(0)",
-          "queryType": "instant"
+          "expr": "sum(increase(slotwise_reservations_total{outcome=\"conflict\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -116,8 +118,8 @@
       "type": "stat",
       "title": "Notifications sent",
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -129,11 +131,12 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "expr": "sum(count_over_time({service_name=\"notification-service\"} |= \"Notification sent to\" [$__range])) or vector(0)",
-          "queryType": "instant"
+          "expr": "sum(increase(slotwise_notifications_total{outcome=\"sent\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -164,8 +167,8 @@
       "type": "stat",
       "title": "Notifications failed for good",
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 18,
@@ -177,11 +180,12 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "expr": "sum(count_over_time({service_name=\"notification-service\"} |= \"failed permanently\" [$__range])) or vector(0)",
-          "queryType": "instant"
+          "expr": "sum(increase(slotwise_notifications_total{outcome=\"failed\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -211,10 +215,10 @@
       "id": 5,
       "type": "timeseries",
       "title": "Reservations per minute",
-      "description": "Counted from the booking-service log lines 'Created reservation' and 'Reservation conflict'. If those messages change, this breaks.",
+      "description": "Business counters (BusinessMeters in slotwise-observability), counted where the reservation is committed or rejected: they do not depend on any log message.",
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -226,22 +230,11 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "expr": "sum(count_over_time({service_name=\"booking-service\"} |= \"Created reservation\" [1m])) or vector(0)",
-          "legendFormat": "created",
-          "queryType": "range"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
-          "expr": "sum(count_over_time({service_name=\"booking-service\"} |= \"Reservation conflict\" [1m])) or vector(0)",
-          "legendFormat": "conflict",
-          "queryType": "range"
+          "expr": "sum by (outcome) (increase(slotwise_reservations_total[1m]))",
+          "legendFormat": "{{outcome}}"
         }
       ],
       "fieldConfig": {
@@ -272,10 +265,10 @@
       "id": 6,
       "type": "timeseries",
       "title": "Notifications per minute",
-      "description": "Counted from the notification-service log lines. 'retry' = an attempt failed and will be tried again.",
+      "description": "sent / retry (an attempt failed and will be tried again) / failed (given up: permanent error, attempts used up, or an expired lease with none left).",
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -287,32 +280,11 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "expr": "sum(count_over_time({service_name=\"notification-service\"} |= \"Notification sent to\" [1m])) or vector(0)",
-          "legendFormat": "sent",
-          "queryType": "range"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
-          "expr": "sum(count_over_time({service_name=\"notification-service\"} |~ \"attempt [0-9]+ failed\" [1m])) or vector(0)",
-          "legendFormat": "retry (attempt failed)",
-          "queryType": "range"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
-          "expr": "sum(count_over_time({service_name=\"notification-service\"} |= \"failed permanently\" [1m])) or vector(0)",
-          "legendFormat": "failed for good",
-          "queryType": "range"
+          "expr": "sum by (outcome) (increase(slotwise_notifications_total[1m]))",
+          "legendFormat": "{{outcome}}"
         }
       ],
       "fieldConfig": {
@@ -342,8 +314,8 @@
     {
       "id": 7,
       "type": "timeseries",
-      "title": "Warnings and errors by service",
-      "description": "",
+      "title": "Warnings and errors by service (from the logs)",
+      "description": "Still read from the logs, but by level, not by message text.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -393,11 +365,11 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Duplicate events skipped by service",
-      "description": "At-least-once delivery: a duplicate is expected now and then, and the idempotent consumers skip it.",
+      "title": "Duplicate events skipped by consumer",
+      "description": "At-least-once delivery: a redelivery is expected now and then, and the idempotent consumers skip it.",
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -409,12 +381,11 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "loki",
-            "uid": "loki"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "expr": "sum by (service_name) (count_over_time({service_name=~\".+\"} |= \"Duplicate\" |= \"skipped\" [1m]))",
-          "legendFormat": "{{service_name}}",
-          "queryType": "range"
+          "expr": "sum by (consumer) (increase(slotwise_events_duplicates_total[1m]))",
+          "legendFormat": "{{consumer}}"
         }
       ],
       "fieldConfig": {
@@ -474,5 +445,5 @@
       }
     }
   ],
-  "description": "Business view built only from log lines (LogQL). Source: OTLP logs -> Collector -> Loki."
+  "description": "Business view from counters of our own (Micrometer -> OTLP -> Prometheus); the two log panels read the logs by level."
 }
