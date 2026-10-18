@@ -137,11 +137,13 @@ sequenceDiagram
 
 ## In action
 
-A reservation followed through three services (OpenTelemetry trace in Grafana Tempo), and a dashboard built from the logs:
+A reservation followed through three services (OpenTelemetry trace in Grafana Tempo, with the database calls), a dashboard built from the logs, and one built from real metrics:
 
 ![Trace of one reservation across booking, audit and notification](docs-site/docs/assets/tempo-trace.png)
 
 ![Grafana dashboard with reservations, conflicts and notifications](docs-site/docs/assets/grafana-dashboard.png)
+
+![Grafana dashboard with the application metrics: requests by status, latency, JVM, DB pools, Kafka](docs-site/docs/assets/grafana-metrics.png)
 
 More screenshots, the demo traffic and the tests in the [docs site](https://tonigarioliver.github.io/slotwise/showcase/).
 
