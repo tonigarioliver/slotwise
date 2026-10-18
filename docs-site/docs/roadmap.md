@@ -132,7 +132,8 @@ Project target: add user cache, rate limiting, sessions.
       the outbox + idempotent consumer, see decisions.md. At Most Once / Exactly Once
       (Kafka transactions) not explored yet.
 - [~] Patterns: Event Driven, Outbox (done, `OutboxRelay`), Saga, CQRS, Event Sourcing
-      (conceptually) — Saga/CQRS/Event Sourcing still pending.
+      (conceptually) — Saga/CQRS/Event Sourcing still pending. Decided to leave them for another day: only a
+      short docs section in decisions.md (why they are not implemented here), no code.
 - [x] **Micrometer Tracing (OpenTelemetry) across the services** — `slotwise-observability` module: `traceId`/`spanId`
       in the logs (ECS JSON), propagated through HTTP and Kafka headers, and carried across the outbox
       (`OutboxTraceContext`). Replaced the hand-rolled `CorrelationIdFilter` (deleted). No exporter yet: see

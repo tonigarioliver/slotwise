@@ -139,15 +139,4 @@ class AuditEventListenerIntegrationTest {
         return this.jdbcClient.sql("SELECT resource_id FROM audit_event WHERE event_id = :id")
                 .param("id", eventId).query(Long.class).optional().orElse(-1L);
     }
-
-    @Autowired
-    java.util.List<io.micrometer.core.instrument.binder.MeterBinder> meterBinders;
-
-    @Test
-    void duplicateCounter_isRegisteredAtZeroWhenTheApplicationStarts() {
-        final var fresh = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        this.meterBinders.forEach(binder -> binder.bindTo(fresh));
-
-        assertThat(BusinessMeters.duplicateEvents(fresh, EventConsumer.AUDIT).count()).isZero();
-    }
 }

@@ -1,8 +1,5 @@
 package com.slotwise.notification.service;
 
-import com.slotwise.observability.BusinessMeters;
-import com.slotwise.observability.BusinessMeters.EventConsumer;
-import io.micrometer.core.instrument.MeterRegistry;
 import com.slotwise.events.ReservationCreatedEvent;
 import com.slotwise.notification.data.NotificationRepository;
 import com.slotwise.notification.data.NotificationStatus;
@@ -21,7 +18,7 @@ import org.springframework.util.StringUtils;
 public class NotificationListener {
 
     private final NotificationRepository notificationRepository;
-    private final MeterRegistry meterRegistry;
+    private final NotificationMetrics notificationMetrics;
 
     @Transactional
     @KafkaListener(topics = ReservationCreatedEvent.TOPIC)
@@ -34,7 +31,7 @@ public class NotificationListener {
                 legacy ? "Event has no ownerSubject (published before the field existed)" : null);
         if (inserted == 0) {
             log.info("Duplicate notification event skipped: {}", event);
-            BusinessMeters.duplicateEvents(this.meterRegistry, EventConsumer.NOTIFICATION).increment();
+            this.notificationMetrics.duplicateEvent();
         }
     }
 }

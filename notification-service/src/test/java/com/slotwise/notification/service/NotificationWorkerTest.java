@@ -191,18 +191,4 @@ class NotificationWorkerTest {
         assertThat(this.row()).containsEntry("status", "PENDING");
         assertThat(this.row().get("last_error")).isNull();
     }
-
-    @Autowired
-    java.util.List<io.micrometer.core.instrument.binder.MeterBinder> meterBinders;
-
-    @Test
-    void businessCounters_areRegisteredAtZeroWhenTheApplicationStarts() {
-        final var fresh = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        this.meterBinders.forEach(binder -> binder.bindTo(fresh));
-
-        for (final NotificationOutcome outcome : NotificationOutcome.values()) {
-            assertThat(BusinessMeters.notifications(fresh, outcome).count()).isZero();
-        }
-        assertThat(fresh.find(BusinessMeters.DUPLICATE_EVENTS).tag(BusinessMeters.CONSUMER, "notification").counter()).isNotNull();
-    }
 }

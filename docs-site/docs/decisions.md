@@ -1568,9 +1568,10 @@ Actuator `health`/`info`.
   `FAILED` (a permanent error, the attempts used up, a lease that expired with none left); it counts when the status is set, not after the commit (one-row transactions). The duplicate counter is in the three
   idempotent consumers; a real one showed up at the first restart.
 - **Registered at 0 at start-up.** A counter that only appears when first incremented has no earlier sample, so Prometheus' `increase()` and `rate()` lose that first event. Seen here: a failed notification counted
-  `1` while `increase()` said `0` (the alert never fired) and 7 reservations showed as 4.43. Each service has a `MeterBinder` bean that registers its counters at 0 (`BusinessMetersConfig`), which fixed both
-  (verified: `increase(failed[10m])` = 1.02). The per-service bean is because the counters are service-specific and the shared module cannot know the service; the alternative, each counting class registering its own, was
-  not done.
+  `1` while `increase()` said `0` (the alert never fired) and 7 reservations showed as 4.43. Each service has a metrics component (`BookingMetrics`, `NotificationMetrics`, `AuditMetrics`) that creates its counters in its constructor, so they exist at 0 from start-up, which fixed both
+  (verified: `increase(failed[10m])` = 1.02). The component is per service because the counters are service-specific and the shared module cannot know the service. It also hides the registry, names and tags from the counting code, which calls
+  `reservationCreated()`, `failed()`, `duplicateEvent()`. A first version used a `MeterBinder` bean per service (`BusinessMetersConfig`); it was replaced because a metrics class is the more direct
+  shape and Spring Boot's docs only recommend `MeterBinder` when the meters depend on other beans.
 - **The dashboard** (`slotwise.json`): stats and per-minute charts from the counters; the two log panels (warnings/errors by service and the recent ones) still read Loki, by level, not by message text.
 
 **Alerts** (`grafana/provisioning/alerting/slotwise-alerts.yaml`, Grafana-managed, loaded at start-up): *service down* per service (`time() - max(timestamp(jvm_memory_used_bytes{service_name=...}))` above 90 s, for 1 minute, no data
@@ -1586,5 +1587,5 @@ nothing is delivered (Grafana's default would be an email with no SMTP).
 `${COLLECTOR_URL:http://localhost:4318}`; the Docker image sets `COLLECTOR_URL=http://otel-collector:4318` (inside a container `localhost` is the container; when the services join `docker-compose.yml` it belongs there).
 
 **Deliberately not done**: a contact point (email/webhook) for the alerts; a health endpoint for `notification-service`; build info in `/actuator/info`; counters of our own for HTTP errors (Micrometer already measures them);
-tracking the first-increment pitfall for counters added later (a new counter needs its binder, and nothing enforces it).
+tracking the first-increment pitfall for counters added later (a new counter needs a method on the metrics class, and nothing enforces it).
 

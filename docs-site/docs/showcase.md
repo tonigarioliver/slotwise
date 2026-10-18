@@ -49,7 +49,7 @@ The demo traffic behind these numbers (`scripts/demo-traffic.sh`):
 
     A counter that only appears when it is first incremented has no earlier sample for Prometheus to compare with, so `increase()` loses that first event. It was
     seen here: a failed notification counted `1` but `increase()` said `0`, and the alert on it did not fire. Each service now registers its counters at start-up
-    (`MeterBinder`), which fixed both. See [Decisions](decisions.md#business-counters-alerts-and-actuator-fase-4).
+    (a metrics component per service), which fixed both. See [Decisions](decisions.md#business-counters-alerts-and-actuator-fase-4).
 
 ## Real application metrics
 
@@ -109,13 +109,13 @@ The `409` is the `reservations_no_overlap` constraint plus a `SELECT ... FOR UPD
 
 ## The tests behind it
 
-The last full `mvn test` run, on Spring Boot 4.1.1: **69 tests, all passing**, against real Testcontainers (Postgres, Redis, Kafka) rather than mocks.
+The last full `mvn test` run, on Spring Boot 4.1.1: **71 tests, all passing**, against real Testcontainers (Postgres, Redis, Kafka) rather than mocks.
 
 | Module | Tests | What stands out |
 |---|---|---|
-| `booking-service` | 27 | two concurrent overlapping reservations: only one wins; the request's trace survives the outbox and Kafka (`create_continuesTheRequestTraceThroughOutboxAndKafka`); a poison message does not block the consumer; Redis write-through is immediate; the reservation counters count only what committed; `health`/`info` are public and `env` is not |
+| `booking-service` | 28 | two concurrent overlapping reservations: only one wins; the request's trace survives the outbox and Kafka (`create_continuesTheRequestTraceThroughOutboxAndKafka`); a poison message does not block the consumer; Redis write-through is immediate; the reservation counters count only what committed; `health`/`info` are public and `env` is not |
 | `audit-service` | 14 | a duplicate event is stored once; a poison message lands on the dead-letter topic with its original bytes |
-| `notification-service` | 20 | the inbox worker's retries, the Keycloak client, idempotent listener |
+| `notification-service` | 21 | the inbox worker's retries, the Keycloak client, idempotent listener |
 | `slotwise-kafka-support` | 1 | a record that always fails is retried, then dead-lettered to `reservation-events.DLT` (and it proves the auto-configuration activates itself) |
 | `slotwise-observability` | 7 | the default properties are added with the lowest priority (and one variable, `COLLECTOR_URL`, moves the three telemetry endpoints); the business counters exist at 0 from start-up; the Grafana dashboards and alert rules only mention series and tag values that the code can really emit |
 

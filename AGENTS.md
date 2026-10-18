@@ -161,9 +161,9 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
   built by hand from `kafkaProperties.buildProducerProperties()` (the DLT one in `KafkaErrorHandlingAutoConfiguration`) connects to
   `localhost:9092` and times out in tests. Copy `DefaultKafkaProducerFactory#getConfigurationProperties()` of Boot's own
   factory instead. Also: `mvn -pl <service> test` needs `-am` (else `slotwise-events` is fetched from Central and fails).
-- **Business counters live in `BusinessMeters`** (`slotwise-observability`): enums + factory methods, never a raw string for a name or a tag value. Each service registers its counters at 0
-  with a `MeterBinder` bean (`BusinessMetersConfig`): a counter that only appears when first incremented loses that first event in Prometheus' `increase()`/`rate()` (an alert missed it). The dashboards and alert
-  rules hold the series names and tag values as text; `BusinessMetersContractTest` reads `grafana/` and fails if they mention something the code cannot emit. A new counter needs its enum value, a binder and a test.
+- **Business counters live in `BusinessMeters`** (`slotwise-observability`): enums + factory methods, never a raw string for a name or a tag value. Each service owns a small metrics `@Component` (`BookingMetrics`, `NotificationMetrics`, `AuditMetrics`) that
+  creates its counters in the constructor, so they exist at 0 from start-up: a counter that only appears when first incremented loses that first event in Prometheus' `increase()`/`rate()` (an alert missed it). The dashboards and alert
+  rules hold the series names and tag values as text; `BusinessMetersContractTest` reads `grafana/` and fails if they mention something the code cannot emit. A new counter needs its enum value, a method on the service's metrics class and a test.
 - **Telemetry defaults are one YAML in the module** (`slotwise-observability-defaults.yml`, lowest priority), so a service writes nothing; the Collector address is `COLLECTOR_URL` (default `http://localhost:4318`, the Docker image
   sets `http://otel-collector:4318`). Actuator exposes only `health` (+ probes) and `info`, public in booking and audit `SecurityConfig`; notification-service has no web server.
 - **Grafana alert rules are provisioned from `grafana/provisioning/alerting/` but nothing is delivered** (no contact point). "Service down" is `time() - max(timestamp(jvm_memory_used_bytes{...}))` because pushed metrics have no `up`.

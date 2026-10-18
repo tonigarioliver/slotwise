@@ -499,18 +499,4 @@ class ReservationServiceIntegrationTest {
             return 1;
         }
     }
-
-    @Autowired
-    java.util.List<io.micrometer.core.instrument.binder.MeterBinder> meterBinders;
-
-    // Independent of test order: bind the application's own MeterBinder beans to a fresh registry and look for the counters at 0.
-    @Test
-    void businessCounters_areRegisteredAtZeroWhenTheApplicationStarts() {
-        final var fresh = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        this.meterBinders.forEach(binder -> binder.bindTo(fresh));
-
-        assertThat(BusinessMeters.reservations(fresh, ReservationOutcome.CREATED).count()).isZero();
-        assertThat(fresh.find(BusinessMeters.RESERVATIONS).tag(BusinessMeters.OUTCOME, "conflict").counter()).isNotNull();
-        assertThat(fresh.find(BusinessMeters.DUPLICATE_EVENTS).tag(BusinessMeters.CONSUMER, "booking").counter()).isNotNull();
-    }
 }
