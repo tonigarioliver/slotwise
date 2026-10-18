@@ -8,6 +8,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import com.slotwise.observability.BusinessMeters;
+import com.slotwise.observability.BusinessMeters.ReservationOutcome;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import java.util.concurrent.BlockingQueue;
@@ -150,12 +153,15 @@ class ReservationServiceIntegrationTest {
     private final ProcessedEvents processedEvents;
     private final JdbcClient jdbcClient;
     private final Tracer tracer;
+    private final MeterRegistry meterRegistry;
 
     @Autowired
     ReservationServiceIntegrationTest(
             ResourceService resourceService, ReservationService reservationService, ReservationWriteService reservationWriteService, CapturingListener capturingListener,
-            OutboxEventRepository outboxEventRepository, ProcessedEvents processedEvents, JdbcClient jdbcClient, Tracer tracer) {
+            OutboxEventRepository outboxEventRepository, ProcessedEvents processedEvents, JdbcClient jdbcClient, Tracer tracer,
+            MeterRegistry meterRegistry) {
         this.tracer = tracer;
+        this.meterRegistry = meterRegistry;
         this.processedEvents = processedEvents;
         this.jdbcClient = jdbcClient;
         this.outboxEventRepository = outboxEventRepository;
@@ -366,6 +372,35 @@ class ReservationServiceIntegrationTest {
         assertThat(this.bookAs(new Caller("sub-alice", true), "sub-bob", 5).ownerSubject()).isEqualTo("sub-bob");
     }
 
+    // The business counters the Grafana dashboard and the alerts read (BusinessMeters): created only when the reservation really
+    // committed, conflict when the overlap is rejected.
+    @Test
+    void create_countsCreatedAndConflictedReservations() {
+        final double created = this.reservations(ReservationOutcome.CREATED);
+        final double conflict = this.reservations(ReservationOutcome.CONFLICT);
+        final ResourceDto resource = this.resourceService.create(
+                CreateResourceRequest.builder().name("Room Counters").build());
+        final CreateReservationRequest request = CreateReservationRequest.builder()
+                .resourceId(resource.id())
+                .startTime(Instant.parse("2026-03-01T10:00:00Z"))
+                .endTime(Instant.parse("2026-03-01T11:00:00Z"))
+                .ownerSubject("user-counters")
+                .build();
+
+        this.reservationService.create(ADMIN, request);
+        assertThat(this.reservations(ReservationOutcome.CREATED)).isEqualTo(created + 1);
+        assertThat(this.reservations(ReservationOutcome.CONFLICT)).isEqualTo(conflict);
+
+        assertThatThrownBy(() -> this.reservationService.create(ADMIN, request))
+                .isInstanceOf(ReservationConflictException.class);
+        assertThat(this.reservations(ReservationOutcome.CREATED)).isEqualTo(created + 1);
+        assertThat(this.reservations(ReservationOutcome.CONFLICT)).isEqualTo(conflict + 1);
+    }
+
+    private double reservations(final ReservationOutcome outcome) {
+        return BusinessMeters.reservations(this.meterRegistry, outcome).count();
+    }
+
     @Test
     void create_overlappingReservation_throwsConflict() {
         final ResourceDto resource = this.resourceService.create(
@@ -463,5 +498,19 @@ class ReservationServiceIntegrationTest {
             assertThat(e.getCause()).isInstanceOf(ReservationConflictException.class);
             return 1;
         }
+    }
+
+    @Autowired
+    java.util.List<io.micrometer.core.instrument.binder.MeterBinder> meterBinders;
+
+    // Independent of test order: bind the application's own MeterBinder beans to a fresh registry and look for the counters at 0.
+    @Test
+    void businessCounters_areRegisteredAtZeroWhenTheApplicationStarts() {
+        final var fresh = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        this.meterBinders.forEach(binder -> binder.bindTo(fresh));
+
+        assertThat(BusinessMeters.reservations(fresh, ReservationOutcome.CREATED).count()).isZero();
+        assertThat(fresh.find(BusinessMeters.RESERVATIONS).tag(BusinessMeters.OUTCOME, "conflict").counter()).isNotNull();
+        assertThat(fresh.find(BusinessMeters.DUPLICATE_EVENTS).tag(BusinessMeters.CONSUMER, "booking").counter()).isNotNull();
     }
 }

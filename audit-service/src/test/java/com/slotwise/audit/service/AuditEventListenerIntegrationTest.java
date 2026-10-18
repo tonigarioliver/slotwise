@@ -17,6 +17,9 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.Test;
+import com.slotwise.observability.BusinessMeters;
+import com.slotwise.observability.BusinessMeters.EventConsumer;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -48,6 +51,9 @@ class AuditEventListenerIntegrationTest {
     @Autowired
     JdbcClient jdbcClient;
 
+    @Autowired
+    MeterRegistry meterRegistry;
+
     @Test
     void publishedEvent_isStored() {
         this.publish(1L, 10L);
@@ -58,6 +64,7 @@ class AuditEventListenerIntegrationTest {
 
     @Test
     void duplicateEvent_storedOnce() {
+        final double duplicates = BusinessMeters.duplicateEvents(this.meterRegistry, EventConsumer.AUDIT).count();
         this.publish(2L, 20L);
         this.publish(2L, 20L);
         // Marker with a different id: once it is stored, the duplicate (published before it, same
@@ -68,6 +75,8 @@ class AuditEventListenerIntegrationTest {
             assertThat(this.count("reservation-created:3")).isEqualTo(1L);
             assertThat(this.count("reservation-created:2")).isEqualTo(1L);
         });
+        // ...and the skipped redelivery was counted as a duplicate.
+        assertThat(BusinessMeters.duplicateEvents(this.meterRegistry, EventConsumer.AUDIT).count()).isEqualTo(duplicates + 1);
     }
 
     @Test
@@ -129,5 +138,16 @@ class AuditEventListenerIntegrationTest {
     private Long resourceIdOf(final String eventId) {
         return this.jdbcClient.sql("SELECT resource_id FROM audit_event WHERE event_id = :id")
                 .param("id", eventId).query(Long.class).optional().orElse(-1L);
+    }
+
+    @Autowired
+    java.util.List<io.micrometer.core.instrument.binder.MeterBinder> meterBinders;
+
+    @Test
+    void duplicateCounter_isRegisteredAtZeroWhenTheApplicationStarts() {
+        final var fresh = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        this.meterBinders.forEach(binder -> binder.bindTo(fresh));
+
+        assertThat(BusinessMeters.duplicateEvents(fresh, EventConsumer.AUDIT).count()).isZero();
     }
 }

@@ -4,6 +4,9 @@ import com.slotwise.booking.data.ReservationRepository;
 import com.slotwise.booking.model.Caller;
 import com.slotwise.booking.model.CreateReservationRequest;
 import com.slotwise.booking.model.ReservationDto;
+import com.slotwise.observability.BusinessMeters;
+import com.slotwise.observability.BusinessMeters.ReservationOutcome;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -25,13 +28,24 @@ public class ReservationService {
 
     private final ReservationWriteService reservationWriteService;
     private final ReservationRepository reservationRepository;
+    private final MeterRegistry meterRegistry;
 
     // The owner is the caller unless an admin names someone else. A client-supplied owner used to be taken as-is,
     // which let any user create reservations (and trigger notifications) in another user's name.
     public ReservationDto create(@NotNull Caller caller, @NotNull @Valid CreateReservationRequest request) {
         final String owner = resolveOwner(caller, request.ownerSubject());
-        return this.reservationWriteService.create(request.toBuilder().ownerSubject(owner).build());
+        // Counted here and not in ReservationWriteService: this method has no transaction, so the write one has already
+        // committed (or rolled back) when we count, and a rolled-back reservation is never counted as created.
+        try {
+            final ReservationDto created = this.reservationWriteService.create(request.toBuilder().ownerSubject(owner).build());
+            BusinessMeters.reservations(this.meterRegistry, ReservationOutcome.CREATED).increment();
+            return created;
+        } catch (ReservationConflictException e) {
+            BusinessMeters.reservations(this.meterRegistry, ReservationOutcome.CONFLICT).increment();
+            throw e;
+        }
     }
+
 
     private static String resolveOwner(final Caller caller, final @Nullable String requested) {
         if (!StringUtils.hasText(requested) || requested.equals(caller.subject())) {

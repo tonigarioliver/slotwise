@@ -1,5 +1,8 @@
 package com.slotwise.booking.service;
 
+import com.slotwise.observability.BusinessMeters;
+import com.slotwise.observability.BusinessMeters.EventConsumer;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.slotwise.events.ReservationCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReservationEventListener {
 
     private final ProcessedEvents processedEvents;
+    private final MeterRegistry meterRegistry;
 
     // The outbox delivers at-least-once, so the same event can arrive twice (e.g. the relay's
     // commit failed after a successful send). The dedup insert and the processing share one
@@ -31,6 +35,7 @@ public class ReservationEventListener {
     void onReservationCreated(final ReservationCreatedEvent event) {
         if (!this.processedEvents.markProcessed("reservation-created:" + event.reservationId())) {
             log.info("Duplicate reservation event skipped: {}", event);
+            BusinessMeters.duplicateEvents(this.meterRegistry, EventConsumer.BOOKING).increment();
             return;
         }
         log.info("Reservation event received from {}: {}", ReservationCreatedEvent.TOPIC, event);

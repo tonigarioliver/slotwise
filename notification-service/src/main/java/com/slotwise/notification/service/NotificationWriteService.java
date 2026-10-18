@@ -4,6 +4,9 @@ import com.slotwise.notification.config.NotificationProperties;
 import com.slotwise.notification.data.Notification;
 import com.slotwise.notification.data.NotificationRepository;
 import com.slotwise.notification.data.NotificationStatus;
+import com.slotwise.observability.BusinessMeters;
+import com.slotwise.observability.BusinessMeters.NotificationOutcome;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 import java.util.Optional;
@@ -22,6 +25,7 @@ public class NotificationWriteService {
 
     private final NotificationRepository notificationRepository;
     private final NotificationProperties notificationProperties;
+    private final MeterRegistry meterRegistry;
 
     // Locks one due row (FOR UPDATE SKIP LOCKED), counts the attempt and pushes next_attempt_at forward by
     // claimTimeout — the lease: a worker that crashes mid-work leaves a row that simply becomes due again.
@@ -36,6 +40,7 @@ public class NotificationWriteService {
             exhausted.setStatus(NotificationStatus.FAILED);
             exhausted.setLastError("Lease expired after max attempts (worker died mid-work?)");
             this.notificationRepository.saveAndFlush(exhausted);
+            this.count(NotificationOutcome.FAILED);
             due = this.notificationRepository.lockNextDue();
         }
         return due.map(n -> {
@@ -51,6 +56,7 @@ public class NotificationWriteService {
             n.setStatus(NotificationStatus.SENT);
             n.setRecipient(recipient);
             n.setSentAt(Instant.now());
+            this.count(NotificationOutcome.SENT);
         });
     }
 
@@ -59,6 +65,7 @@ public class NotificationWriteService {
         this.notificationRepository.findById(id).ifPresent(n -> {
             n.setStatus(NotificationStatus.FAILED);
             n.setLastError(error);
+            this.count(NotificationOutcome.FAILED);
         });
     }
 
@@ -69,9 +76,18 @@ public class NotificationWriteService {
             n.setLastError(error);
             if (n.getAttempts() >= this.notificationProperties.maxAttempts()) {
                 n.setStatus(NotificationStatus.FAILED);
+                this.count(NotificationOutcome.FAILED);
             } else {
                 n.setNextAttemptAt(Instant.now().plus(this.notificationProperties.backoff()));
+                this.count(NotificationOutcome.RETRY);
             }
         });
+    }
+
+    // Counted where the status changes, which is the only place that sees all three ways to end up FAILED (a permanent error, the
+    // attempts used up, a lease that expired with no attempts left). It is counted when set, not after the commit: these are
+    // one-row transactions, and a commit failing right here would overcount by one.
+    private void count(final NotificationOutcome outcome) {
+        BusinessMeters.notifications(this.meterRegistry, outcome).increment();
     }
 }

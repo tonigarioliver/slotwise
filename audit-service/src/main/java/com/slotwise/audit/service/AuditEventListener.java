@@ -1,6 +1,9 @@
 package com.slotwise.audit.service;
 
 import com.slotwise.audit.data.AuditEventRepository;
+import com.slotwise.observability.BusinessMeters;
+import com.slotwise.observability.BusinessMeters.EventConsumer;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.slotwise.events.ReservationCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +24,7 @@ public class AuditEventListener {
 
     private final AuditEventRepository auditEventRepository;
     private final JsonMapper jsonMapper;
+    private final MeterRegistry meterRegistry;
 
     @Transactional
     @KafkaListener(topics = ReservationCreatedEvent.TOPIC)
@@ -30,6 +34,7 @@ public class AuditEventListener {
                 this.jsonMapper.writeValueAsString(event));
         if (inserted == 0) {
             log.info("Duplicate audit event skipped: {}", event);
+            BusinessMeters.duplicateEvents(this.meterRegistry, EventConsumer.AUDIT).increment();
         }
     }
 }

@@ -13,6 +13,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.slotwise.observability.BusinessMeters;
+import com.slotwise.observability.BusinessMeters.NotificationOutcome;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -45,14 +48,29 @@ class NotificationWorkerTest {
     @Autowired
     JdbcClient jdbcClient;
 
+    @Autowired
+    MeterRegistry meterRegistry;
+
     @MockitoBean
     KeycloakUserClient keycloakUserClient;
 
     @MockitoSpyBean
     NotificationWriteService notificationWriteService;
 
+    private double sent;
+    private double retry;
+    private double failed;
+
+    // The meters live as long as the shared context, so each test compares against the value it started with.
+    private double count(final NotificationOutcome outcome) {
+        return BusinessMeters.notifications(this.meterRegistry, outcome).count();
+    }
+
     @BeforeEach
     void seedOneDueRow() {
+        this.sent = this.count(NotificationOutcome.SENT);
+        this.retry = this.count(NotificationOutcome.RETRY);
+        this.failed = this.count(NotificationOutcome.FAILED);
         this.jdbcClient.sql("DELETE FROM notification").update();
         this.jdbcClient.sql("""
                 INSERT INTO notification (event_id, reservation_id, owner_subject, status, next_attempt_at, created_at)
@@ -79,6 +97,8 @@ class NotificationWorkerTest {
                 .containsEntry("recipient", "owner@slotwise.local");
         assertThat(this.row().get("sent_at")).isNotNull();
         assertThat(this.worker.processNext()).isFalse(); // nothing left due
+        assertThat(this.count(NotificationOutcome.SENT)).isEqualTo(this.sent + 1);
+        assertThat(this.count(NotificationOutcome.FAILED)).isEqualTo(this.failed);
     }
 
     @Test
@@ -91,6 +111,8 @@ class NotificationWorkerTest {
                 .containsEntry("delayed", true);
         assertThat(this.row().get("last_error").toString()).contains("Keycloak down");
         assertThat(this.worker.processNext()).isFalse(); // delayed by backoff, so not picked again
+        assertThat(this.count(NotificationOutcome.RETRY)).isEqualTo(this.retry + 1);
+        assertThat(this.count(NotificationOutcome.FAILED)).isEqualTo(this.failed);
     }
 
     @Test
@@ -105,6 +127,8 @@ class NotificationWorkerTest {
         assertThat(this.row()).containsEntry("status", "FAILED").containsEntry("attempts", 3);
         this.makeDueAgain();
         assertThat(this.worker.processNext()).isFalse(); // FAILED rows are never retried
+        assertThat(this.count(NotificationOutcome.RETRY)).isEqualTo(this.retry + 2); // attempts 1 and 2 were retried, the 3rd failed for good
+        assertThat(this.count(NotificationOutcome.FAILED)).isEqualTo(this.failed + 1);
     }
 
     @Test
@@ -114,6 +138,8 @@ class NotificationWorkerTest {
         this.worker.processNext();
 
         assertThat(this.row()).containsEntry("status", "FAILED").containsEntry("attempts", 1);
+        assertThat(this.count(NotificationOutcome.FAILED)).isEqualTo(this.failed + 1);
+        assertThat(this.count(NotificationOutcome.RETRY)).isEqualTo(this.retry);
     }
 
     @Test
@@ -148,6 +174,7 @@ class NotificationWorkerTest {
 
         verifyNoInteractions(this.keycloakUserClient);
         assertThat(this.row()).containsEntry("status", "FAILED").containsEntry("attempts", 3);
+        assertThat(this.count(NotificationOutcome.FAILED)).isEqualTo(this.failed + 1); // the third way to end up FAILED is counted too
         assertThat(this.row().get("last_error").toString()).contains("max attempts");
     }
 
@@ -163,5 +190,19 @@ class NotificationWorkerTest {
 
         assertThat(this.row()).containsEntry("status", "PENDING");
         assertThat(this.row().get("last_error")).isNull();
+    }
+
+    @Autowired
+    java.util.List<io.micrometer.core.instrument.binder.MeterBinder> meterBinders;
+
+    @Test
+    void businessCounters_areRegisteredAtZeroWhenTheApplicationStarts() {
+        final var fresh = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        this.meterBinders.forEach(binder -> binder.bindTo(fresh));
+
+        for (final NotificationOutcome outcome : NotificationOutcome.values()) {
+            assertThat(BusinessMeters.notifications(fresh, outcome).count()).isZero();
+        }
+        assertThat(fresh.find(BusinessMeters.DUPLICATE_EVENTS).tag(BusinessMeters.CONSUMER, "notification").counter()).isNotNull();
     }
 }
