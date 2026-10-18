@@ -6,12 +6,13 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
 ## Structure
 
 - Multi-module Maven build: root `pom.xml` (packaging `pom`) imports
-  `spring-boot-dependencies:4.0.1` as a BOM in `dependencyManagement` — it does
+  `spring-boot-dependencies:4.1.1` as a BOM in `dependencyManagement` — it does
   **not** extend `spring-boot-starter-parent`. Modules: `slotwise-events` (plain jar — the
   Kafka wire contract, `ReservationCreatedEvent` + topic names, shared by every service),
   `slotwise-kafka-support` (auto-configuration: consumer retries + dead-letter topic; a service just depends on it,
-  retries via `slotwise.kafka.retry.*`), `slotwise-observability` (tracing deps + default properties — OpenTelemetry
-  sampling/Kafka observation/ECS logs — injected lowest-priority by an `EnvironmentPostProcessor`; a service just depends on it),
+  retries via `slotwise.kafka.retry.*`), `slotwise-observability` (Spring Boot's `spring-boot-starter-opentelemetry` — traces, logs and metrics over OTLP, as the Boot 4
+  reference documents it, no Java agent — plus Datasource Micrometer for JDBC spans and default properties injected lowest-priority by an
+  `EnvironmentPostProcessor`; a service just depends on it),
   `booking-service`, and `audit-service` (port 8082: consumes `reservation-events` into its
   own `slotwise_audit` database, admin-only `GET /api/audit-events`), and `notification-service`
   (no HTTP API, so no port: consumes `reservation-events` into an inbox table; a worker resolves the
@@ -35,7 +36,10 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
   (`keycloak/realm-export.json`, role `view-users`): after editing the realm file you must
   `docker compose up -d --force-recreate keycloak`.
 - `otel/collector-config.yaml` + `grafana/` — the OpenTelemetry Collector pipeline (traces, logs, metrics -> `grafana/otel-lgtm`) and the
-  provisioned dashboard (built from log lines). Services -> Collector over OTLP, never straight to a backend.
+  provisioned dashboards (`slotwise.json` from log lines, `slotwise-metrics.json` from Micrometer metrics). Services -> Collector over OTLP, never straight to a backend.
+- `Dockerfile` (repo root, one for the three services): `docker build --build-arg SERVICE=<module> -t slotwise/<module> .`; multi-stage, a JRE and the
+  Spring Boot jar. Telemetry endpoints are `MANAGEMENT_OPENTELEMETRY_*` / `MANAGEMENT_OTLP_METRICS_EXPORT_URL` env vars (default host `otel-collector`).
+  The services are not in `docker-compose.yml` yet (see decisions.md). An OpenTelemetry **Java agent** variant lives on the local branch `experiment/otel-agent`.
 - `docker-compose.yml` — local Postgres 17 (`slotwise`/`slotwise`/`slotwise`) and
   Keycloak 26 (OIDC Authorization Server, port `8081`, realm auto-imported from
   `keycloak/realm-export.json` via `--import-realm`).
@@ -157,17 +161,21 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
   built by hand from `kafkaProperties.buildProducerProperties()` (the DLT one in `KafkaErrorHandlingAutoConfiguration`) connects to
   `localhost:9092` and times out in tests. Copy `DefaultKafkaProducerFactory#getConfigurationProperties()` of Boot's own
   factory instead. Also: `mvn -pl <service> test` needs `-am` (else `slotwise-events` is fetched from Central and fails).
-- **Boot 4 tracing needs two modules beyond the tracing one**: without `spring-boot-opentelemetry` there is no
-  `OpenTelemetry` bean (`otelTracer` fails), and without `spring-boot-micrometer-metrics` the web observation
-  autoconfiguration fails on `MetricsProperties`. Both live in `slotwise-observability`. A trace does not survive the
-  outbox by itself (relay = other thread): see `OutboxTraceContext`. Log lines are ECS JSON now (`traceId` at the top
-  level), so filter with `jq` (or a log platform), not by column.
-- **Logs reach Loki through OTLP, so the log appender must match the SDK**: `opentelemetry-logback-appender-1.0` is `2.21.0-alpha`
-  because that instrumentation release is built against SDK 1.55.0 (Boot 4.0.1's); the BOM manages only the SDK. The dashboard
-  counts *log lines* (`Created reservation`, `Notification sent to`...): changing those messages silently empties a panel.
-  In tests the OTLP exporters are switched off by a `src/test/resources/application.properties` (a test `application.yml`
-  would shadow the main one). Jaeger v2's HTTP API is `/api/v3/...`, not `/api/...`; `otlp` exporter alias in the Collector is
-  deprecated (`otlp_grpc`/`otlp_http`).
+- **JDBC is not instrumented by Spring Boot**: its docs point to Datasource Micrometer (`datasource-micrometer-spring-boot` 2.x for Boot 4), which wraps *every*
+  `DataSource` bean. `booking-service` has three (`primaryDataSource`, `replicaDataSource` and the outer `@Primary` `dataSource`, a
+  `LazyConnectionDataSourceProxy` over the routing one): the outer one is excluded (`jdbc.excluded-data-source-bean-names`), otherwise every query is recorded twice. The pools
+  are named `primary`/`replica` (`DataSourceConfig`): `jdbc.datasource.pool` on a span says which one ran it (both pools share the database name).
+- **`mvn package` of a service gave a thin jar (no `Main-Class`, 18 KB)** because the project does not extend `spring-boot-starter-parent`, which binds
+  `spring-boot:repackage` to `package`. The binding is in the root `pom.xml` `pluginManagement`; the thin one is `*.jar.original`.
+- A trace does not survive the outbox by itself (the relay is another thread): see `OutboxTraceContext`. Log lines are ECS JSON (`traceId` at the top level):
+  filter with `jq` or a log platform, not by column. **Logs reach Loki through OTLP, so the log appender must match the SDK**: `opentelemetry-logback-appender-1.0`
+  is `2.28.1-alpha` because that instrumentation release is built against SDK 1.62.0 (Boot 4.1.1's; bump the appender whenever Boot bumps the SDK); the BOM manages only the SDK. The dashboard counts
+  *log lines* (`Created reservation`, `Notification sent to`...): changing those messages silently empties a panel.
+- In tests the OTLP exporters (traces, logs, metrics) are switched off by a `src/test/resources/application.properties` (a test `application.yml` would shadow the main one).
+  Jaeger v2's HTTP API is `/api/v3/...`; the Collector's plain `otlp` exporter alias is deprecated (`otlp_grpc`/`otlp_http`). After deleting a resource such as
+  `logback-spring.xml`, run `mvn clean`: the stale copy in `target/classes` keeps being used.
+- **Don't kill processes with a pattern that also appears in your own command line** (`pkill -f`, `ps | grep` + `kill`): it matches the shell running the command and kills it.
+  Use the `[x]` bracket trick and keep the target name out of the rest of that command.
 - Session/terminal history for this project has been lost before mid-session. This file
   plus git commits (once initialized) are the durable record — prefer committing working
   states over relying on conversation recovery.

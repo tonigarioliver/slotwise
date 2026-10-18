@@ -1,5 +1,6 @@
 package com.slotwise.booking.config;
 
+import com.zaxxer.hikari.HikariDataSource;
 import java.util.Map;
 import javax.sql.DataSource;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -68,13 +69,19 @@ public class DataSourceConfig {
         };
     }
 
+    // The pool names ("primary" / "replica") are what tells the two apart in the JDBC spans (`jdbc.datasource.pool`, from
+    // Datasource Micrometer) and in the Hikari metrics: both pools point at the same database name, so otherwise they would
+    // show up as HikariPool-1 / HikariPool-2.
     @Bean
     DataSource primaryDataSource(final JdbcConnectionDetails connectionDetails) {
-        return DataSourceBuilder.create()
+        final HikariDataSource dataSource = DataSourceBuilder.create()
+                .type(HikariDataSource.class)
                 .url(connectionDetails.getJdbcUrl())
                 .username(connectionDetails.getUsername())
                 .password(connectionDetails.getPassword())
                 .build();
+        dataSource.setPoolName("primary");
+        return dataSource;
     }
 
     @Bean
@@ -85,7 +92,10 @@ public class DataSourceConfig {
 
     @Bean
     DataSource replicaDataSource(final DataSourceProperties replicaDataSourceProperties) {
-        return replicaDataSourceProperties.initializeDataSourceBuilder().build();
+        final HikariDataSource dataSource =
+                replicaDataSourceProperties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
+        dataSource.setPoolName("replica");
+        return dataSource;
     }
 
     @Bean

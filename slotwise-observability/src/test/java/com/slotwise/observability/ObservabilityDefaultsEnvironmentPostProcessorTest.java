@@ -24,6 +24,8 @@ class ObservabilityDefaultsEnvironmentPostProcessorTest {
                 .isEqualTo("http://localhost:4318/v1/traces");
         assertThat(environment.getProperty("management.opentelemetry.logging.export.otlp.endpoint"))
                 .isEqualTo("http://localhost:4318/v1/logs");
+        assertThat(environment.getProperty("management.otlp.metrics.export.url"))
+                .isEqualTo("http://localhost:4318/v1/metrics");
     }
 
     @Test

@@ -12,50 +12,31 @@
     <packaging>jar</packaging>
 
     <name>slotwise-observability</name>
-    <description>Tracing (OpenTelemetry through Micrometer Tracing) and structured ECS logs shared by the services: dependencies plus default properties</description>
+    <description>Spring Boot's OpenTelemetry starter (traces, logs, metrics over OTLP) and structured ECS logs shared by the services: dependencies plus default properties</description>
 
     <dependencies>
-        <!-- @AutoConfiguration and the @Conditional* annotations (OpenTelemetryLogbackAutoConfiguration). -->
+        <!-- Spring Boot's own OpenTelemetry starter, as the reference documentation recommends (no Java agent): Micrometer Tracing
+             with the OpenTelemetry bridge, the OTLP exporters and the Micrometer OTLP registry, all configured with
+             management.opentelemetry.* / management.otlp.* properties and versions managed by the Boot BOM. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-autoconfigure</artifactId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
         </dependency>
-        <!-- Tracing: traceId/spanId in the MDC, propagated through HTTP and Kafka headers. OTLP export to the Collector below. -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
-        </dependency>
-        <!-- The OpenTelemetry SDK bean the tracing autoconfiguration needs (API + SDK only). -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-opentelemetry</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-otel</artifactId>
-        </dependency>
-        <!-- Ships the spans over OTLP (to the OpenTelemetry Collector, see docker-compose.yml). -->
-        <dependency>
-            <groupId>io.opentelemetry</groupId>
-            <artifactId>opentelemetry-exporter-otlp</artifactId>
-        </dependency>
-        <!-- Captures Logback events as OpenTelemetry log records (shipped by the OTLP log exporter Spring Boot configures).
-             2.21.0-alpha is the instrumentation release built against OpenTelemetry SDK 1.55.0, the one Boot 4.0.1 manages. -->
+        <!-- Logs: Logback events -> OpenTelemetry log records (the documented OpenTelemetryAppender; Boot's docs give no
+             coordinates). 2.28.1-alpha is the instrumentation release built against OpenTelemetry SDK 1.62.0, the one
+             Boot 4.1.1 manages. -->
         <dependency>
             <groupId>io.opentelemetry.instrumentation</groupId>
             <artifactId>opentelemetry-logback-appender-1.0</artifactId>
-            <version>2.21.0-alpha</version>
+            <version>2.28.1-alpha</version>
         </dependency>
-        <!-- Needed to compile against the appender; every service already has Logback through its starters. -->
+        <!-- JDBC is not instrumented by Boot itself; its observability docs point to the Datasource Micrometer project. The 2.x
+             line targets Spring Boot 4. It wraps DataSource beans and emits `query` (and connection/result-set) observations,
+             which become spans through the tracing bridge above. See booking-service for the routing DataSource exclusion. -->
         <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <!-- HTTP server observation (WebMvcObservationAutoConfiguration) needs MetricsProperties from here. -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-micrometer-metrics</artifactId>
+            <groupId>net.ttddyy.observation</groupId>
+            <artifactId>datasource-micrometer-spring-boot</artifactId>
+            <version>2.3.0</version>
         </dependency>
 
         <dependency>

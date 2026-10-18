@@ -1432,6 +1432,12 @@ It now copies the config of Boot's own `DefaultKafkaProducerFactory`, which does
 
 ## Tracing: OpenTelemetry through Micrometer Tracing (Fase 4)
 
+!!! note "Updated"
+
+    The dependencies listed below (tracing module, SDK, bridge, exporter, metrics) are now one: Spring Boot's
+    `spring-boot-starter-opentelemetry`. See "Spring Boot's official OpenTelemetry starter" at the end for why, and for
+    what was tried in between (the Java agent).
+
 The prediction in "MDC is thread-local" came true once there were three services: `CorrelationIdFilter` only
 covered one HTTP request in `booking-service`. It is **deleted, not kept alongside** (two IDs per log line is noise);
 the `X-Correlation-Id` response header went with it. Now every log line carries `traceId`/`spanId`, taken from the
@@ -1470,8 +1476,8 @@ shows logs, traces and metrics together and links a log to its trace by `trace_i
   is simpler than a shipper per environment. Logback gets an `OpenTelemetryAppender` (`logback-spring.xml` in
   `slotwise-observability`, next to Boot's console appender, which keeps printing ECS JSON) and
   `OpenTelemetryLogbackAutoConfiguration` installs the `OpenTelemetry` bean into it. Each log record carries
-  `trace_id`/`span_id`. The appender is `2.21.0-alpha` on purpose: it is the instrumentation release built against SDK
-  1.55.0, the one Boot 4.0.1 manages (the BOM does not manage the instrumentation artifacts).
+  `trace_id`/`span_id`. The appender's version is chosen on purpose (`2.28.1-alpha` since the move to Boot 4.1.1): it is the instrumentation release built against the SDK Boot manages (1.62.0;
+  it was `2.21.0-alpha` for 1.55.0 under Boot 4.0.1). The BOM does not manage the instrumentation artifacts.
 - **The dashboard comes from log lines** (`grafana/dashboards/slotwise.json`, provisioned from the repo through a second provider
   mounted in the image): reservations created/conflicts and notifications sent/retried/failed for good are `count_over_time`
   over lines such as `Created reservation`, `Reservation conflict`, `Notification sent to`, `failed permanently`.
@@ -1486,4 +1492,64 @@ shows logs, traces and metrics together and links a log to its trace by `trace_i
 Grafana persistence (volume) and authentication; a Loki -> Tempo "view trace" derived field (`trace_id` is on every
 record, the link is not configured); any AWS wiring (Application Signals, X-Ray, ADOT) — only the Collector seam exists.
 **Not verified**: opening the dashboard in a browser (done with the Grafana/Loki API: the numbers match the traffic sent).
+
+## Spring Boot's official OpenTelemetry starter, JDBC spans, and a first Dockerfile (Fase 4 / Fase 5)
+
+**The decision: follow what Spring Boot 4's reference documentation says, using Spring's own dependencies.** The tracing page recommends
+`spring-boot-starter-opentelemetry` (Micrometer Tracing + the OpenTelemetry bridge + the OTLP exporters + the Micrometer OTLP registry),
+configured with `management.opentelemetry.tracing.export.otlp.*`; the logging page asks for `management.opentelemetry.logging.export.otlp.endpoint`, an
+`OpenTelemetryAppender` in `logback-spring.xml` and a bean that calls `OpenTelemetryAppender.install(...)` (that is
+`OpenTelemetryLogbackAutoConfiguration`). Neither page mentions the Java agent. `slotwise-observability` now depends on the starter alone
+(plus the appender, whose coordinates the docs do not give, and Datasource Micrometer), instead of the four separate pieces.
+
+**The Java agent was tried first and kept on a local branch (`experiment/otel-agent`, not pushed).** Traces and logs by the agent, metrics by Micrometer,
+Dockerfile with the agent inside. It worked end to end and gave *more* detail (34 spans per reservation instead of ~11: Redis/Redisson, Hibernate and
+Spring Data repository spans), but: it is a JVM flag to carry in every run script, Dockerfile and manifest; it does not work in a GraalVM native
+image; its version matters (**2.21.0 did not trace Spring Kafka 4 consumers**, 2.32.0 did; found with `OTEL_JAVAAGENT_DEBUG=true`); and
+nothing in the test suite would notice a regression. Dropped because Slotwise follows Spring's documented path. The branch also holds the
+`OutboxTraceContext` rewritten with the OpenTelemetry API and `scripts/run-with-agent.sh`.
+
+**What this path does not give** (accepted): no spans for **Redisson** (rate limiter, locks: there is no library instrumentation for it), none for Hibernate sessions,
+and the Spring Data repository spans did not show up in our traces. The agent would have shown all of them.
+
+**JDBC.** Boot does not instrument JDBC itself; its observability page points to the Datasource Micrometer project. `datasource-micrometer-spring-boot` 2.3.0
+(the 2.x line targets Spring Boot 4) wraps `DataSource` beans and emits `connection`, `query` (with the SQL), `result-set` and `generated-keys` observations, which the
+tracing bridge turns into spans. Its documentation says nothing about a routing `DataSource`, so it was tested here:
+- It wraps **every** `DataSource` bean; `booking-service` has three (the two real pools and the outer `@Primary` `LazyConnectionDataSourceProxy` over the
+  routing one), so wrapping the outer one would record every query twice. `jdbc.excluded-data-source-bean-names: dataSource` skips it.
+- Both pools point at the same database name, so spans carried `jdbc.datasource.name=slotwise` for both and only `HikariPool-1/2` told them apart. The pools are now named
+  (`primary`, `replica`, in `DataSourceConfig`), and `jdbc.datasource.pool` says which one ran a query. **Verified**: a `POST /api/reservations` runs its 5
+  queries on `primary`; a `GET /api/resources` runs on `replica`. The pool names also show up in the Hikari metrics.
+- All four observation types are on, so a request has many small spans; `jdbc.includes: QUERY` would keep only the queries (left as is for now).
+
+**Dockerfile (first step of Fase 5).** One `Dockerfile` at the repo root, `--build-arg SERVICE=<module>`, two stages (Maven build with a BuildKit cache; JRE with the jar). No agent: the
+telemetry is the starter's, pointed at the Collector with `MANAGEMENT_OPENTELEMETRY_*` / `MANAGEMENT_OTLP_METRICS_EXPORT_URL` environment variables
+(defaults assume the Collector is reachable as `otel-collector`).
+- **The first image did not start** (`no main manifest attribute`): without `spring-boot-starter-parent` nothing binds `spring-boot:repackage` to `package`, so `mvn package`
+  left an 18 KB jar with no `Main-Class`. Fixed once, in the root `pom.xml` `pluginManagement` (the thin jar is now `*.jar.original`).
+- **Verified**: the three images build (one `docker build` failed once on unpacking a layer and passed on retry) and `audit-service` run inside Docker (host network,
+  own service name and consumer group) appeared in the same trace as a request handled by the `booking-service` on the host, with its own JDBC spans, and its logs
+  (with `trace_id`) and JVM metrics reached Grafana.
+
+**Deliberately not done**: the services in `docker-compose.yml` (inside a container `localhost` is the container, so every address changes to a service name, and the JWT
+`issuer` in the token, `http://localhost:8081/...`, cannot be validated from there without configuring Keycloak's public hostname); a non-root user, healthchecks, layered jars;
+restricting the JDBC spans.
+
+## Upgrade to Spring Boot 4.1.1
+
+`spring-boot.version` 4.0.1 -> 4.1.1 in the root `pom.xml` (4.1.1 is a stable release; 4.2 is still a milestone). It is a big step underneath: Spring Framework 7.0.2 -> 7.0.9,
+Hibernate 7.2 -> 7.4.5, Flyway 11.14 -> 12.4, Kafka 4.1 -> 4.2.1, Spring Kafka 4.0 -> 4.1.1, Jackson 3.0 -> 3.1.5, Lettuce 6.8 -> 7.5.2, Micrometer 1.16 -> 1.17.1 and
+the OpenTelemetry SDK 1.55 -> 1.62. **No code changes were needed** beyond the Logback appender, which must follow the SDK (`2.21.0-alpha` -> `2.28.1-alpha`).
+Verified: all tests pass (1+3+22+10+19); the three services start; a reservation gives a 26-span trace with the three consumers; the JDBC spans still say `primary` for writes
+and `replica` for reads (Datasource Micrometer 2.3.0 works unchanged); logs and metrics reach Grafana; the three Docker images build and a container joins a trace.
+Not checked: the other 4.1 changes that do not show in tests (read the 4.1 release notes before a real upgrade).
+
+## A metrics dashboard next to the log-derived one
+
+`grafana/dashboards/slotwise-metrics.json` (provisioned like the first one): HTTP requests by status and latency by route (`http_server_requests_*`), JVM heap per service,
+DB connections acquired per minute by pool (`hikaricp_connections_acquire_*`, labelled `primary`/`replica`) and Kafka records consumed. These are the Micrometer meters the
+starter exports over OTLP (every 10 s, set in `slotwise-observability`), so unlike the log-derived dashboard they do not break if a log message changes.
+What it shows when you try it: a burst of reads from one user returns `429` (the Redisson rate limiter), visible in the status panel; the connection panel shows ~60 acquisitions a
+minute on `primary` even when idle, which is the `OutboxRelay` polling every second; reads show up on `replica`. The Showcase page uses it, and its trace screenshot was redone to
+include the JDBC spans.
 

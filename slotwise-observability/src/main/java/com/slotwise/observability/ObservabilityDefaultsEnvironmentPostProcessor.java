@@ -21,6 +21,10 @@ public class ObservabilityDefaultsEnvironmentPostProcessor implements Environmen
             "management.opentelemetry.tracing.export.otlp.endpoint", "http://localhost:4318/v1/traces",
             // Logs go the same way (Logback -> OpenTelemetryAppender -> OTLP -> Collector -> Loki).
             "management.opentelemetry.logging.export.otlp.endpoint", "http://localhost:4318/v1/logs",
+            // Micrometer metrics (JVM, HTTP, Hikari, Kafka...) over OTLP too; 10s instead of Boot's 1m so a dashboard moves
+            // while you try things.
+            "management.otlp.metrics.export.url", "http://localhost:4318/v1/metrics",
+            "management.otlp.metrics.export.step", "10s",
             // Spans + trace propagation through the message headers, producer and listener side.
             "spring.kafka.template.observation-enabled", "true",
             "spring.kafka.listener.observation-enabled", "true",

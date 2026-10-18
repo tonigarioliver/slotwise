@@ -57,6 +57,13 @@ spring:
     baseline-version: "0"
 
 
+# Datasource Micrometer (JDBC spans, from slotwise-observability) wraps every DataSource bean. Here there are three: the two real
+# pools (primaryDataSource, replicaDataSource) and the @Primary `dataSource`, a LazyConnectionDataSourceProxy over the
+# routing one. Wrapping the outer one too would record every query twice, so only the real pools are wrapped: each span then
+# carries `jdbc.datasource.pool` = primary or replica (see DataSourceConfig), which is the interesting bit.
+jdbc:
+  excluded-data-source-bean-names: dataSource
+
 slotwise:
   reservation:
     min-duration-minutes: 15
