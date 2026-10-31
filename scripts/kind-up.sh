@@ -8,4 +8,9 @@ for image in postgres:17 redis:7 apache/kafka:4.1.0 quay.io/keycloak/keycloak:26
     docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
     docker save "$image" | docker exec -i slotwise-control-plane ctr --namespace=k8s.io images import - >/dev/null
 done
+# The services' images are built here (Docker's layer cache makes an unchanged one instant) and copied like the others; re-run the script after changing code.
+for service in audit-service; do
+    docker build -q --build-arg SERVICE="$service" -t "slotwise/$service:dev" . >/dev/null
+    docker save "slotwise/$service:dev" | docker exec -i slotwise-control-plane ctr --namespace=k8s.io images import - >/dev/null
+done
 kubectl apply -k .

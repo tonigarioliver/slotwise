@@ -7,6 +7,7 @@ resources:
   - k8s/service-redis.yaml
   - k8s/kafka.yaml
   - k8s/keycloak.yaml
+  - k8s/audit-service.yaml
 
 # ConfigMaps generated from the repository's own files (no copy to keep in sync). Kustomize appends a hash of the content to the name and rewrites
 # every reference, so changing a script gives a new name and the Pods that use it are rolled out.
@@ -22,6 +23,14 @@ configMapGenerator:
   - name: keycloak-realm
     files:
       - keycloak/realm-export.json
+  # Addresses shared by the three services, by Service name. KEYCLOAK_ISSUER_URI is the PUBLIC name written in the token (a label that is only compared),
+  # KEYCLOAK_JWK_SET_URI is where the keys are downloaded from (a real call), see decisions.md.
+  - name: slotwise-config
+    literals:
+      - DB_HOST=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/slotwise
+      - KEYCLOAK_JWK_SET_URI=http://keycloak:8080/realms/slotwise/protocol/openid-connect/certs
 
 # Secrets with the DEVELOPMENT values already in docker-compose.yml and the init scripts. Fine for a local learning cluster; not for production
 # (there: Sealed Secrets, Vault or the cloud's secret manager).
@@ -33,3 +42,7 @@ secretGenerator:
     literals:
       - username=admin
       - password=admin
+  - name: audit-db
+    literals:
+      - DB_USER=slotwise_audit
+      - DB_PASSWORD=slotwise_audit

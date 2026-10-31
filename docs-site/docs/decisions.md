@@ -1675,7 +1675,7 @@ Learning Kubernetes step by step on a local **kind** cluster (`slotwise`; the no
 desired state, scaling, self-healing), a Service (stable address and DNS name over Pods that change IP), `NodePort` and `port-forward`, ConfigMap and Secret (base64 is not encryption), RBAC (`auth can-i`, a Role that reads ConfigMaps but not Secrets),
 and a StatefulSet with a PersistentVolumeClaim (data survives the Pod). Those experiments live in `k8s/learning/` and are not applied.
 
-**What is deployed for Slotwise now**: Keycloak and Kafka (`k8s/keycloak.yaml`, `k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
+**What is deployed for Slotwise now**: `audit-service`, Keycloak and Kafka (`k8s/audit-service.yaml`, `k8s/keycloak.yaml`, `k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
 (`k8s/deployment-redis.yaml` + `service-redis.yaml`, one replica: it is a cache and the Redisson locks). **Verified from a clean cluster**: the three databases from the init scripts exist, the primary sees the replica `streaming`, the replica is a standby that rejects
 writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row written to the primary appears on the replica. Killing `postgres-0` keeps its data (it comes back with the same name and the same volume).
 
@@ -1687,7 +1687,7 @@ writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row wri
 - **Start order is the application's job.** Kubernetes has no `depends_on`: the replica's script retries `pg_basebackup` every 2 s until the primary answers, and Pods stay `Pending`/not ready until their volume and probes allow it.
 - **The Secret holds development values in git** (the same ones as `docker-compose.yml` and the init scripts). Acceptable for a learning cluster, **not for production**.
 
-**Deliberately not done** (yet): the three services in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
+**Deliberately not done** (yet): `booking-service` and `notification-service` in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
 a Postgres operator (failover, backups) instead of two hand-made StatefulSets; the `kubectl apply -k` hash names are not pruned (`apply --prune`).
 
 **Kafka in the cluster** (`k8s/kafka.yaml`): KRaft, one node that is broker and controller, a StatefulSet with a 1 GiB volume, the same settings as compose's `kafka`.
@@ -1706,3 +1706,13 @@ a Postgres operator (failover, backups) instead of two hand-made StatefulSets; t
 - **Readiness through Keycloak's own health endpoint** (`KC_HEALTH_ENABLED`, `/health/ready` on the management port 9000): the image has no `curl`, and Kubernetes makes the HTTP call itself, which compose's healthcheck could not do.
 - **Verified**: a token requested through the port-forward carries `iss = http://localhost:8081/realms/slotwise` and the role `RESERVATION_ADMIN`; another Pod (`postgres-0`) resolves `keycloak` and downloads the keys (`200 OK`) by the internal name.
 - **Not done**: a database for Keycloak (it would lose users created by hand), `start` instead of `start-dev` (TLS and a proper hostname), more than one replica.
+
+**`audit-service` in the cluster** (`k8s/audit-service.yaml`): the first application, written as the template for the other two.
+- **Configuration comes from two generated objects.** The ConfigMap `slotwise-config` holds the addresses all three services share (`DB_HOST=postgres`, `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, the Keycloak issuer and keys URL) and the Secret `audit-db` its database user and password
+  (development values, see above); the Deployment loads both with `envFrom`. The Spring configuration reads these same variable names in compose, so the services did not change.
+- **Probes are HTTP calls made by Kubernetes**, to Actuator's liveness and readiness endpoints (the image has no `curl`; compose needed bash's `/dev/tcp` for this). A **startup probe** (up to 60 s) covers the slow start so the liveness probe does not kill a Pod that is still booting. Readiness decides whether
+  the Pod receives traffic; liveness whether it must be restarted.
+- **`imagePullPolicy: Never`**: the image only exists inside the node, copied by `scripts/kind-up.sh`, so Kubernetes must not try to pull it from a registry. `kind-up.sh` also builds the service images now (Docker's layer cache makes an unchanged one instant); **after changing code, run it again**, and a changed image needs
+  `kubectl rollout restart deployment/audit-service` because the Pod spec (the tag `:dev`) did not change.
+- **Verified**: 401 without a token, 200 with alice's (admin), 403 with bob's (normal user); 0 restarts, running as `app` (uid 10001), Flyway applied and the Kafka consumer started.
+- **Known and left for the next step**: there is no Collector in the cluster, so the telemetry exporters log connection errors (the image's `COLLECTOR_URL` default, `otel-collector`, does not exist here); no resource requests/limits yet (the next concept).
