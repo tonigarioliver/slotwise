@@ -6,6 +6,7 @@ resources:
   - k8s/deployment-redis.yaml
   - k8s/service-redis.yaml
   - k8s/kafka.yaml
+  - k8s/keycloak.yaml
 
 # ConfigMaps generated from the repository's own files (no copy to keep in sync). Kustomize appends a hash of the content to the name and rewrites
 # every reference, so changing a script gives a new name and the Pods that use it are rolled out.
@@ -18,6 +19,9 @@ configMapGenerator:
   - name: postgres-replica-script
     files:
       - postgres/replica-entrypoint.sh
+  - name: keycloak-realm
+    files:
+      - keycloak/realm-export.json
 
 # Secrets with the DEVELOPMENT values already in docker-compose.yml and the init scripts. Fine for a local learning cluster; not for production
 # (there: Sealed Secrets, Vault or the cloud's secret manager).
@@ -25,3 +29,7 @@ secretGenerator:
   - name: postgres-secret
     literals:
       - password=slotwise
+  - name: keycloak-admin
+    literals:
+      - username=admin
+      - password=admin

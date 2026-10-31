@@ -1675,7 +1675,7 @@ Learning Kubernetes step by step on a local **kind** cluster (`slotwise`; the no
 desired state, scaling, self-healing), a Service (stable address and DNS name over Pods that change IP), `NodePort` and `port-forward`, ConfigMap and Secret (base64 is not encryption), RBAC (`auth can-i`, a Role that reads ConfigMaps but not Secrets),
 and a StatefulSet with a PersistentVolumeClaim (data survives the Pod). Those experiments live in `k8s/learning/` and are not applied.
 
-**What is deployed for Slotwise now**: Kafka (`k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
+**What is deployed for Slotwise now**: Keycloak and Kafka (`k8s/keycloak.yaml`, `k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
 (`k8s/deployment-redis.yaml` + `service-redis.yaml`, one replica: it is a cache and the Redisson locks). **Verified from a clean cluster**: the three databases from the init scripts exist, the primary sees the replica `streaming`, the replica is a standby that rejects
 writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row written to the primary appears on the replica. Killing `postgres-0` keeps its data (it comes back with the same name and the same volume).
 
@@ -1687,7 +1687,7 @@ writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row wri
 - **Start order is the application's job.** Kubernetes has no `depends_on`: the replica's script retries `pg_basebackup` every 2 s until the primary answers, and Pods stay `Pending`/not ready until their volume and probes allow it.
 - **The Secret holds development values in git** (the same ones as `docker-compose.yml` and the init scripts). Acceptable for a learning cluster, **not for production**.
 
-**Deliberately not done** (yet): Keycloak and the three services in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
+**Deliberately not done** (yet): the three services in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
 a Postgres operator (failover, backups) instead of two hand-made StatefulSets; the `kubectl apply -k` hash names are not pruned (`apply --prune`).
 
 **Kafka in the cluster** (`k8s/kafka.yaml`): KRaft, one node that is broker and controller, a StatefulSet with a 1 GiB volume, the same settings as compose's `kafka`.
@@ -1698,3 +1698,11 @@ a Postgres operator (failover, backups) instead of two hand-made StatefulSets; t
 - **`fsGroup: 1000`**: the image runs as uid 1000 and the volume is created root-owned; `fsGroup` makes it writable.
 - **Verified**: a topic with 3 partitions, a message written from `kafka-0` and read from a different Pod through `kafka:9092`, and after deleting `kafka-0` the topic and the message were still there. `scripts/kind-up.sh` copies the image from the local Docker and rebuilds everything.
 - **Not done**: more than one broker (replication factor stays 1), a Kafka operator (Strimzi), authentication/TLS (compose has none either).
+
+**Keycloak in the cluster** (`k8s/keycloak.yaml`): a Deployment in dev mode (embedded database, no volume: the realm is re-imported at every start, as in compose) and a ClusterIP Service `keycloak:8080`.
+- **The realm and the admin user are generated, not typed**: `keycloak/realm-export.json` becomes the ConfigMap `keycloak-realm` (1.5 KB; a ConfigMap holds at most 1 MiB) mounted on `/opt/keycloak/data/import`, and the admin credentials the dev Secret `keycloak-admin`, both by the root `kustomization.yaml`.
+- **The issuer problem again, the same answer.** `KC_HOSTNAME=http://localhost:8081` is the public name written as `iss`; the services will keep `KEYCLOAK_ISSUER_URI` at that value and read the keys with `KEYCLOAK_JWK_SET_URI=http://keycloak:8080/realms/slotwise/protocol/openid-connect/certs`. From the host the public name is reached with
+  `kubectl port-forward service/keycloak 8081:8080`. When an Ingress exists, `KC_HOSTNAME` and the issuer move to its address.
+- **Readiness through Keycloak's own health endpoint** (`KC_HEALTH_ENABLED`, `/health/ready` on the management port 9000): the image has no `curl`, and Kubernetes makes the HTTP call itself, which compose's healthcheck could not do.
+- **Verified**: a token requested through the port-forward carries `iss = http://localhost:8081/realms/slotwise` and the role `RESERVATION_ADMIN`; another Pod (`postgres-0`) resolves `keycloak` and downloads the keys (`200 OK`) by the internal name.
+- **Not done**: a database for Keycloak (it would lose users created by hand), `start` instead of `start-dev` (TLS and a proper hostname), more than one replica.
