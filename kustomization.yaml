@@ -5,6 +5,7 @@ resources:
   - k8s/postgres-replica.yaml
   - k8s/deployment-redis.yaml
   - k8s/service-redis.yaml
+  - k8s/kafka.yaml
 
 # ConfigMaps generated from the repository's own files (no copy to keep in sync). Kustomize appends a hash of the content to the name and rewrites
 # every reference, so changing a script gives a new name and the Pods that use it are rolled out.

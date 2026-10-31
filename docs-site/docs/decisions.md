@@ -1675,7 +1675,7 @@ Learning Kubernetes step by step on a local **kind** cluster (`slotwise`; the no
 desired state, scaling, self-healing), a Service (stable address and DNS name over Pods that change IP), `NodePort` and `port-forward`, ConfigMap and Secret (base64 is not encryption), RBAC (`auth can-i`, a Role that reads ConfigMaps but not Secrets),
 and a StatefulSet with a PersistentVolumeClaim (data survives the Pod). Those experiments live in `k8s/learning/` and are not applied.
 
-**What is deployed for Slotwise now**: the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
+**What is deployed for Slotwise now**: Kafka (`k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
 (`k8s/deployment-redis.yaml` + `service-redis.yaml`, one replica: it is a cache and the Redisson locks). **Verified from a clean cluster**: the three databases from the init scripts exist, the primary sees the replica `streaming`, the replica is a standby that rejects
 writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row written to the primary appears on the replica. Killing `postgres-0` keeps its data (it comes back with the same name and the same volume).
 
@@ -1687,5 +1687,14 @@ writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row wri
 - **Start order is the application's job.** Kubernetes has no `depends_on`: the replica's script retries `pg_basebackup` every 2 s until the primary answers, and Pods stay `Pending`/not ready until their volume and probes allow it.
 - **The Secret holds development values in git** (the same ones as `docker-compose.yml` and the init scripts). Acceptable for a learning cluster, **not for production**.
 
-**Deliberately not done** (yet): Kafka, Keycloak and the three services in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
+**Deliberately not done** (yet): Keycloak and the three services in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
 a Postgres operator (failover, backups) instead of two hand-made StatefulSets; the `kubectl apply -k` hash names are not pruned (`apply --prune`).
+
+**Kafka in the cluster** (`k8s/kafka.yaml`): KRaft, one node that is broker and controller, a StatefulSet with a 1 GiB volume, the same settings as compose's `kafka`.
+- **One listener, not two.** Compose needed `19092` for containers and `9092` for the host. In the cluster every client is a Pod, so the broker advertises `kafka:9092` (the Service name) and the services will use `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`. From the host, `kubectl port-forward` reaches the port, but
+  the broker would still tell the client to use `kafka`, so host-run services cannot use it that way (not needed: they run in the cluster).
+- **Headless Service** (`clusterIP: None`): DNS answers with the Pod itself (`kafka-0.kafka`), the stable name the KRaft quorum address `1@kafka-0.kafka:9093` needs; `publishNotReadyAddresses: true` because the Pod contacts itself to form the quorum before it is ready.
+- **`enableServiceLinks: false`**: Kubernetes injects `KAFKA_PORT`, `KAFKA_SERVICE_HOST`... for a Service called `kafka`, and the `apache/kafka` image turns every `KAFKA_*` variable into a broker setting. Written as a precaution (the known failure of that clash), not reproduced here.
+- **`fsGroup: 1000`**: the image runs as uid 1000 and the volume is created root-owned; `fsGroup` makes it writable.
+- **Verified**: a topic with 3 partitions, a message written from `kafka-0` and read from a different Pod through `kafka:9092`, and after deleting `kafka-0` the topic and the message were still there. `scripts/kind-up.sh` copies the image from the local Docker and rebuilds everything.
+- **Not done**: more than one broker (replication factor stays 1), a Kafka operator (Strimzi), authentication/TLS (compose has none either).

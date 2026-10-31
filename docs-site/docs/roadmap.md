@@ -185,7 +185,7 @@ communicating via Kafka.
 ## Fase 6 (Meses 9-12) — Kubernetes
 
 - [~] Pods, Deployments, Services, ConfigMaps, Secrets, Ingress — Pods, Deployments, Services, ConfigMaps, Secrets and a StatefulSet with volumes learned on a local kind cluster; Postgres (primary and replica) and Redis
-      deployed from code with `kubectl apply -k .` (`scripts/kind-up.sh` rebuilds it). Kafka, Keycloak, the three services and Ingress pending, see decisions.md.
+      deployed from code with `kubectl apply -k .` (`scripts/kind-up.sh` rebuilds it). Kafka deployed too (`k8s/kafka.yaml`). Keycloak, the three services and Ingress pending, see decisions.md.
 - [ ] Scaling (HPA, Requests/Limits), Networking — "nivel senior serio."
 
 ## Resilience & architecture (not yet slotted into a numbered phase)
