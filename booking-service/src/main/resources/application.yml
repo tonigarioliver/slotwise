@@ -6,6 +6,9 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/slotwise}
+          # Where the signing keys are downloaded from. Separate from the issuer because the issuer is only the name written in the token
+          # (Keycloak's public URL) and a container cannot reach that name: in Docker point this at the Keycloak service (http://keycloak:8080/...).
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/slotwise}/protocol/openid-connect/certs}
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:slotwise}
     username: ${DB_USER:slotwise}

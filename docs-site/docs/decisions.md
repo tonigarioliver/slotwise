@@ -1619,3 +1619,19 @@ The course asks for them conceptually. None is implemented because the project h
   Sourcing would add replay, snapshots and event schema versioning for no requirement this project has.
 
 All three are decisions to take when a requirement asks for them, not before.
+
+## Keycloak from inside containers: public issuer name, keys by service name (Fase 5)
+
+**The problem.** A token carries its issuer (`iss`), and a resource server rejects a token whose `iss` is not the `issuer-uri` it is configured with. With `issuer-uri` alone, Spring also downloads the OpenID
+configuration and the signing keys *from that same URL*. Locally that is `http://localhost:8081/realms/slotwise`, which works from the host; inside a container `localhost` is the container itself, so the service cannot reach it.
+
+**The fix: two properties for two jobs, both configurable.**
+- `issuer-uri` (`KEYCLOAK_ISSUER_URI`) is only the *name* expected in the token. It stays the public URL.
+- `jwk-set-uri` (`KEYCLOAK_JWK_SET_URI`, new) is *where the keys are downloaded*. Its default is the issuer's `/protocol/openid-connect/certs`, so nothing changes outside Docker; in compose it will be
+  `http://keycloak:8080/realms/slotwise/protocol/openid-connect/certs`. When both are set, Spring Boot builds the decoder from the key URL and still checks the issuer, with no discovery call at start-up.
+- Keycloak gets `KC_HOSTNAME` (`KEYCLOAK_PUBLIC_URL`, default `http://localhost:8081`), so it writes that same `iss` whatever host the request used. Without it the `iss` is the host of the token request.
+
+**Verified with the real stack.** The token's `iss` is `http://localhost:8081/realms/slotwise` both when asked from the host and from inside the compose network (`keycloak:8080`). `audit-service` in a container on that network, with
+`KEYCLOAK_JWK_SET_URI` pointing at `keycloak:8080`: no token -> 401, alice's token -> 200. The issuer check is still real: the same container with a different `KEYCLOAK_ISSUER_URI` answers 401 to that same token.
+
+**Deliberately not done**: Keycloak's backchannel hostname options (`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`), a made-up public name such as `keycloak:8081` (it would need an `/etc/hosts` entry on every developer machine), and putting the services in compose (next).

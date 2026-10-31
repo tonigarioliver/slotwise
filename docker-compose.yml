@@ -67,6 +67,8 @@ services:
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      # The public name Keycloak writes as `iss` in every token, whatever host the request came by. The services' KEYCLOAK_ISSUER_URI must be the same value.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8081}
     ports:
       - "8081:8080"
     volumes:
