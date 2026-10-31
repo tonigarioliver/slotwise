@@ -1532,8 +1532,14 @@ telemetry is the starter's, pointed at the Collector with the `COLLECTOR_URL` en
   (with `trace_id`) and JVM metrics reached Grafana.
 
 **Deliberately not done**: the services in `docker-compose.yml` (inside a container `localhost` is the container, so every address changes to a service name, and the JWT
-`issuer` in the token, `http://localhost:8081/...`, cannot be validated from there without configuring Keycloak's public hostname); a non-root user, healthchecks, layered jars;
+`issuer` in the token, `http://localhost:8081/...`, cannot be validated from there without configuring Keycloak's public hostname); a non-root user, healthchecks;
 restricting the JDBC spans.
+
+**Layered jars (Fase 5).** The Spring Boot jar is split with `java -Djarmode=tools -jar app.jar extract --layers --launcher` in the build stage, and the run stage has one `COPY` per layer
+(`dependencies`, `spring-boot-loader`, `snapshot-dependencies`, `application`), started with `JarLauncher` instead of `java -jar`. The image is **not smaller** (690 MB against 687 MB: almost all of it is the
+JRE base image and the 107 MB of dependencies); what changes is the rebuild. Of the jar's 111 MB, 107 MB are dependencies and 356 KB is our code, and **measured**: after changing one source file,
+`docker build` took the three dependency layers from cache and rebuilt only `application`; registries and nodes then also move only that layer. The image starts through `JarLauncher` (checked against the compose infrastructure:
+`Started BookingServiceApplication`, `/actuator/health` UP). Smaller images would need a smaller base or a `jlink` runtime, or GraalVM native (an extra at the end of the roadmap).
 
 ## Upgrade to Spring Boot 4.1.1
 

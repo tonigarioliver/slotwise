@@ -177,7 +177,7 @@ communicating via Kafka.
 ## Fase 5 (Meses 8-9) — Docker
 
 - [~] Dockerfile, Layers, Multi-stage builds, Volumes, Networks, Healthchecks — one parametrized multi-stage `Dockerfile` for the three services
-      (images build and start, telemetry reaches Grafana from inside a container). Layers/non-root/healthchecks, volumes and networks pending.
+      (images build and start, telemetry reaches Grafana from inside a container). Layered jars done (measured: a code change rebuilds only the application layer). Non-root, healthchecks, volumes and networks pending.
 - [ ] Compose to bring up Postgres + Redis + Kafka + Spring with one command — the infrastructure is in `docker-compose.yml`, the three services are
       not (addresses inside containers and Keycloak's issuer need work, see decisions.md).
 
@@ -198,3 +198,8 @@ communicating via Kafka.
 
     The roadmap past Kubernetes hasn't been recovered. If it references "Fase 7" or
     later content, that needs to be re-supplied rather than assumed.
+
+## Extras (at the very end of the course)
+
+- [ ] **GraalVM native images** (the biggest size and start-up cut). Wanted, after everything else: the library route to telemetry is native-compatible, but the Logback
+      OpenTelemetry appender in native is unverified, and Redisson/Hibernate need checking. Layered jars (Fase 5) come first.
