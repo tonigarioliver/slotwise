@@ -15,6 +15,11 @@ services:
       - ./postgres/audit-init.sh:/docker-entrypoint-initdb.d/audit-init.sh:ro
       # notification-service's own database + user (Fase 4); same fresh-volume-only caveat.
       - ./postgres/notification-init.sh:/docker-entrypoint-initdb.d/notification-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slotwise -d slotwise"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   # Streaming replication read replica — Fase 2 "Replication (Read Replicas,
   # Primary-Replica)". Hot standby: read-only, continuously replaying the primary's WAL.
@@ -31,12 +36,22 @@ services:
       - ./postgres/replica-entrypoint.sh:/replica-entrypoint.sh:ro
     depends_on:
       - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slotwise -d slotwise"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
 
   # Fase 3 "Cache-Aside" — ResourceService.getById is @Cacheable against this.
   redis:
     image: redis:7
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   # Fase 4 "Kafka" kickoff. KRaft mode (no Zookeeper — Kafka's own newer consensus
   # protocol, standard for anything started fresh today) single broker, combined
@@ -60,6 +75,11 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
@@ -100,6 +120,80 @@ services:
       - ./grafana/provisioning/slotwise-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/slotwise-dashboards.yaml:ro
       - ./grafana/dashboards:/otel-lgtm/slotwise-dashboards:ro
       - ./grafana/provisioning/alerting/slotwise-alerts.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/slotwise-alerts.yaml:ro
+
+  # Fase 5 — the three services, built from the one root Dockerfile (--build-arg SERVICE). Inside the compose network every address is a service name
+  # (`localhost` would be the container itself). The Keycloak issuer is the PUBLIC name written in the token; the keys are fetched by service name (see decisions.md).
+  # Start everything: `docker compose up -d --build`. The ports published here are the same as when a service runs on the host, so stop one before the other.
+  booking-service:
+    build:
+      context: .
+      args:
+        SERVICE: booking-service
+    image: slotwise/booking-service:dev
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_REPLICA_HOST: postgres-replica
+      DB_REPLICA_PORT: 5432
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8081}/realms/slotwise
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/slotwise/protocol/openid-connect/certs
+    depends_on:
+      postgres: {condition: service_healthy}
+      postgres-replica: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      otel-collector: {condition: service_started}
+    # No curl in the JRE image: bash's /dev/tcp sends the HTTP request and the response must say UP.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && printf 'GET /actuator/health/readiness HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  audit-service:
+    build:
+      context: .
+      args:
+        SERVICE: audit-service
+    image: slotwise/audit-service:dev
+    ports:
+      - "8082:8082"
+    environment:
+      DB_HOST: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8081}/realms/slotwise
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/slotwise/protocol/openid-connect/certs
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      otel-collector: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8082 && printf 'GET /actuator/health/readiness HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # No HTTP server, so no port and no HTTP healthcheck (see decisions.md).
+  notification-service:
+    build:
+      context: .
+      args:
+        SERVICE: notification-service
+    image: slotwise/notification-service:dev
+    environment:
+      DB_HOST: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      keycloak: {condition: service_started}
+      otel-collector: {condition: service_started}
 
 volumes:
   slotwise-postgres:

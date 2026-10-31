@@ -1531,7 +1531,7 @@ telemetry is the starter's, pointed at the Collector with the `COLLECTOR_URL` en
   own service name and consumer group) appeared in the same trace as a request handled by the `booking-service` on the host, with its own JDBC spans, and its logs
   (with `trace_id`) and JVM metrics reached Grafana.
 
-**Deliberately not done**: the services in `docker-compose.yml` (inside a container `localhost` is the container, so every address changes to a service name, and the JWT
+**Deliberately not done**: a non-root user; restricting the JDBC spans. (The services in `docker-compose.yml` were left out here and are done, see "The three services in Compose".)
 `issuer` in the token, `http://localhost:8081/...`, cannot be validated from there without configuring Keycloak's public hostname); a non-root user, healthchecks;
 restricting the JDBC spans.
 
@@ -1635,3 +1635,19 @@ configuration and the signing keys *from that same URL*. Locally that is `http:/
 `KEYCLOAK_JWK_SET_URI` pointing at `keycloak:8080`: no token -> 401, alice's token -> 200. The issuer check is still real: the same container with a different `KEYCLOAK_ISSUER_URI` answers 401 to that same token.
 
 **Deliberately not done**: Keycloak's backchannel hostname options (`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`), a made-up public name such as `keycloak:8081` (it would need an `/etc/hosts` entry on every developer machine), and putting the services in compose (next).
+
+## The three services in Compose, with healthchecks (Fase 5)
+
+`docker compose up -d --build` starts the infrastructure and `booking-service`, `audit-service` and `notification-service`, built from the one root `Dockerfile` (`build.args.SERVICE`). **Verified from a clean start**: all
+services up, `scripts/demo-traffic.sh` gives 201/409/403 as outside Docker, and the counters match (7 created, 2 conflicts, 6 sent, 1 failed).
+
+- **Addresses are service names** through the environment variables the services already read: `DB_HOST=postgres`, `REDIS_HOST=redis`, `KAFKA_BOOTSTRAP_SERVERS=kafka:19092` (Kafka already had a second listener for containers; `9092` stays for the host),
+  `KEYCLOAK_BASE_URL=http://keycloak:8080`, the Keycloak variables from the previous section. **The replica**: booking reads `DB_REPLICA_HOST=postgres-replica` and `DB_REPLICA_PORT=5432` (the container's own port; `5433` is only the host mapping).
+  Credentials and database name are shared by both pools, as the replica is a physical copy of the primary. `COLLECTOR_URL` needs no override: the image's default is already `otel-collector`.
+- **Start order is by health, not by luck**: Postgres (`pg_isready`), the replica, Redis (`redis-cli ping`) and Kafka (`kafka-broker-api-versions.sh`) have healthchecks, and the services `depends_on` them with `condition: service_healthy`. Keycloak and the Collector are only
+  `service_started`: the services do not need Keycloak to boot (the keys are fetched on the first request), and telemetry export tolerates a late Collector.
+- **Healthcheck of booking and audit**: the readiness endpoint, called with bash's `/dev/tcp` because the JRE image has neither `curl` nor `wget` (adding one would grow the image for one line). `CMD` with `bash -c`, not `CMD-SHELL`: `/bin/sh` is dash, which has no `/dev/tcp`.
+- **`notification-service` has no healthcheck**: it has no web server, so there is nothing to call (see "Deliberately not done" of the Actuator section); it only waits for its dependencies.
+- **Ports**: 8080 and 8082 are the ones used when running on the host, so a service runs in one place or the other, not both. Keycloak keeps `8081`.
+
+**Deliberately not done**: a non-root user and a read-only filesystem; a Keycloak healthcheck (its image has no `curl` either); restart policies and resource limits (Kubernetes' job later); secrets outside the compose file (dev values only).

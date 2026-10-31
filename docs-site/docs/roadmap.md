@@ -177,9 +177,9 @@ communicating via Kafka.
 ## Fase 5 (Meses 8-9) — Docker
 
 - [~] Dockerfile, Layers, Multi-stage builds, Volumes, Networks, Healthchecks — one parametrized multi-stage `Dockerfile` for the three services
-      (images build and start, telemetry reaches Grafana from inside a container). Layered jars done (measured: a code change rebuilds only the application layer). Non-root, healthchecks, volumes and networks pending.
-- [ ] Compose to bring up Postgres + Redis + Kafka + Spring with one command — the infrastructure is in `docker-compose.yml`, the three services are
-      not (addresses inside containers still to change; Keycloak's issuer is solved, see decisions.md).
+      (images build and start, telemetry reaches Grafana from inside a container). Layered jars done (measured: a code change rebuilds only the application layer). Healthchecks done for the infrastructure, booking and audit (notification has no web server). Non-root pending; volumes (Postgres data) and the Compose network are used but not yet explained in the docs.
+- [x] Compose to bring up Postgres + Redis + Kafka + Spring with one command — `docker compose up -d --build` starts the infrastructure and the three services (addresses by service name,
+      Keycloak's issuer solved, healthchecks and `depends_on` by health). Verified from a clean start with the demo traffic. See decisions.md.
 
 ## Fase 6 (Meses 9-12) — Kubernetes
 

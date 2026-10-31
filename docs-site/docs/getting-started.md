@@ -62,7 +62,13 @@ mvn -pl notification-service spring-boot:run   # no HTTP API; resolves the owner
 
 Start order doesn't matter: only `booking-service` creates the topic, the consumers wait for it.
 
-To build a service as a container image (the infrastructure above runs in Compose; the services are not in it yet):
+To run **everything** in containers with one command (infrastructure and the three services, built from the root `Dockerfile`):
+
+```bash
+docker compose up -d --build
+```
+
+The services then use the ports 8080 and 8082 too, so stop any copy running on the host first. To build a single service as an image:
 
 ```bash
 docker build --build-arg SERVICE=audit-service -t slotwise/audit-service .
