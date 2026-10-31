@@ -22,6 +22,11 @@ COPY --from=build /layers/spring-boot-loader/ ./
 COPY --from=build /layers/snapshot-dependencies/ ./
 COPY --from=build /layers/application/ ./
 
+# Run as an unprivileged user: the JVM needs no root, so a flaw in the app does not hand over the container as administrator.
+# The layers stay owned by root and read-only to this user; nothing in /app is written at run time (logs go to stdout, temp files to /tmp).
+RUN useradd --system --no-create-home --uid 10001 app
+USER app
+
 # Telemetry is Spring Boot's own (spring-boot-starter-opentelemetry, see slotwise-observability): traces, logs and metrics go over OTLP to the
 # Collector, whose address is the one COLLECTOR_URL variable read by each service's application.yml. The default assumes a container next to the
 # Collector of docker-compose.yml (service name otel-collector); override it with -e (e.g. http://localhost:4318 with --network host).

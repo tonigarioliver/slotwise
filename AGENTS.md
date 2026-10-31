@@ -38,7 +38,7 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
 - `otel/collector-config.yaml` + `grafana/` — the OpenTelemetry Collector pipeline (traces, logs, metrics -> `grafana/otel-lgtm`) and the
   provisioned dashboards (`slotwise.json` from our business counters, `slotwise-metrics.json` from Micrometer metrics) and the alert rules (`provisioning/alerting`). Services -> Collector over OTLP, never straight to a backend.
 - `Dockerfile` (repo root, one for the three services): `docker build --build-arg SERVICE=<module> -t slotwise/<module> .`; multi-stage, a JRE and the
-  Spring Boot jar split in layers (`JarLauncher`; a code change only rebuilds the last layer). The Collector address is the `COLLECTOR_URL` env var (default `http://otel-collector:4318` in the image).
+  Spring Boot jar split in layers (`JarLauncher`; a code change only rebuilds the last layer), run as the non-root user `app`. The Collector address is the `COLLECTOR_URL` env var (default `http://otel-collector:4318` in the image).
   The three services are in `docker-compose.yml` too (`docker compose up -d --build`; addresses by service name, healthchecks, see decisions.md); ports 8080/8082 are the same as on the host, so run one or the other. An OpenTelemetry **Java agent** variant lives on the local branch `experiment/otel-agent`.
 - `docker-compose.yml` — local Postgres 17 (`slotwise`/`slotwise`/`slotwise`) and
   Keycloak 26 (OIDC Authorization Server, port `8081`, realm auto-imported from

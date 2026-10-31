@@ -1531,7 +1531,7 @@ telemetry is the starter's, pointed at the Collector with the `COLLECTOR_URL` en
   own service name and consumer group) appeared in the same trace as a request handled by the `booking-service` on the host, with its own JDBC spans, and its logs
   (with `trace_id`) and JVM metrics reached Grafana.
 
-**Deliberately not done**: a non-root user; restricting the JDBC spans. (The services in `docker-compose.yml` were left out here and are done, see "The three services in Compose".)
+**Deliberately not done**: restricting the JDBC spans. (The services in `docker-compose.yml` were left out here and are done, see "The three services in Compose".)
 `issuer` in the token, `http://localhost:8081/...`, cannot be validated from there without configuring Keycloak's public hostname); a non-root user, healthchecks;
 restricting the JDBC spans.
 
@@ -1651,3 +1651,20 @@ services up, `scripts/demo-traffic.sh` gives 201/409/403 as outside Docker, and 
 - **Ports**: 8080 and 8082 are the ones used when running on the host, so a service runs in one place or the other, not both. Keycloak keeps `8081`.
 
 **Deliberately not done**: a non-root user and a read-only filesystem; a Keycloak healthcheck (its image has no `curl` either); restart policies and resource limits (Kubernetes' job later); secrets outside the compose file (dev values only).
+
+## Non-root containers, volumes and the Compose network (Fase 5)
+
+**Non-root.** The run stage of the `Dockerfile` creates a system user (`app`, uid 10001) and switches to it with `USER app`. The JVM needs no privileges, so a flaw in the app no longer hands over the container as administrator.
+**Verified**: the three containers report `uid=10001(app)`, the demo traffic gives the same statuses and counters (7/2/6/1), `/app` refuses writes (`Permission denied`) and `/tmp` accepts them. Nothing in `/app` is written at run time: logs go to
+stdout and temp files to `/tmp`, so the layers can stay owned by root. Listening on 8080/8082 needs no privilege either (only ports below 1024 do).
+
+**Volumes** (data that outlives a container). Compose declares two, both Postgres: `slotwise-postgres` (the primary) and `slotwise-postgres-replica`, mounted on each `/var/lib/postgresql/data`. They are why `docker compose down` followed by `up` keeps the reservations
+(135 rows when checked). Everything else is deliberately ephemeral: Redis (a cache, rebuilt from the database), Keycloak (the realm is re-imported from `keycloak/realm-export.json`), Grafana's LGTM (dashboards and alerts are provisioned from files), and **Kafka**: recreating its container
+loses the topics and offsets, which is acceptable for a dev setup and would not be in production. **`docker compose down -v` deletes the two Postgres volumes** (all data, and the init scripts run again on the next start, because they only run on an empty data directory).
+Single files from the repository (`realm-export.json`, the init scripts, the Collector and Grafana files) are *bind mounts* (`./file:/path:ro`): the container sees the file on the host, read-only.
+
+**Network.** Compose creates one network per project (`slotwise_default`) and puts every container on it. Docker's built-in DNS makes each *service name* an address (`postgres`, `redis`, `kafka`, `keycloak`, `otel-collector`...), which is why the services use names and not IPs (the IPs, `172.18.0.x`, change on every
+start). **Verified** from inside `booking-service`: the four names resolve. `ports:` (`8080:8080`) is a separate thing: it publishes a container port on the *host*, which only matters for what is reached from outside (a browser, `curl`, a service running with `mvn spring-boot:run`). Between containers the
+network is open without any `ports:`, which is why Postgres could stay unpublished and still be reached; it is published here (5432, 5433) only so the host-run services and tools like `psql` can use it.
+
+**Deliberately not done**: a custom network per tier (e.g. databases unreachable from Keycloak); named bind-mount permissions or read-only root filesystem (`read_only: true`); a Kafka volume; backups of the Postgres volumes.
