@@ -1,0 +1,12 @@
+# Learning: a Pod that RESERVES more memory than the node has. The scheduler cannot place it, so it stays Pending.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demasiado-grande
+spec:
+  containers:
+    - name: redis
+      image: redis:7
+      resources:
+        requests:
+          memory: 100Gi

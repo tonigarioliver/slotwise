@@ -31,6 +31,14 @@ spec:
         - name: booking-service
           image: slotwise/booking-service:dev
           imagePullPolicy: Never
+          # Measured with the cgroup counter: the JVM uses about 704Mi here. requests = what the scheduler reserves; limits = where the kernel kills (OOMKilled).
+          # The JVM only uses 25 % of the limit as heap by default, so MaxRAMPercentage leaves room for non-heap memory (threads, classes) and still uses most of it.
+          resources:
+            requests:
+              memory: 704Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
           ports:
             - containerPort: 8080
           envFrom:

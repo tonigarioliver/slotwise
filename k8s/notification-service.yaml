@@ -21,6 +21,14 @@ spec:
         - name: notification-service
           image: slotwise/notification-service:dev
           imagePullPolicy: Never
+          # Measured with the cgroup counter: the JVM uses about 448Mi here. requests = what the scheduler reserves; limits = where the kernel kills (OOMKilled).
+          # The JVM only uses 25 % of the limit as heap by default, so MaxRAMPercentage leaves room for non-heap memory (threads, classes) and still uses most of it.
+          resources:
+            requests:
+              memory: 448Mi
+              cpu: 250m
+            limits:
+              memory: 768Mi
           envFrom:
             - configMapRef:
                 name: slotwise-config

@@ -33,6 +33,14 @@ spec:
           image: slotwise/audit-service:dev
           # The image only exists in the node (copied by scripts/kind-up.sh), so never try to pull it.
           imagePullPolicy: Never
+          # Measured with the cgroup counter: the JVM uses about 512Mi here. requests = what the scheduler reserves; limits = where the kernel kills (OOMKilled).
+          # The JVM only uses 25 % of the limit as heap by default, so MaxRAMPercentage leaves room for non-heap memory (threads, classes) and still uses most of it.
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 768Mi
           ports:
             - containerPort: 8082
           envFrom:
