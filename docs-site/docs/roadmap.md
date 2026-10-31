@@ -128,12 +128,13 @@ Project target: add user cache, rate limiting, sessions.
       moved from Fase 3's Redis Pub/Sub to a real Kafka topic (3 partitions), producer +
       in-process consumer inside `booking-service`, before touching the multi-service
       split. See decisions.md.
-- [~] Delivery guarantees (At Most Once, At Least Once, Exactly Once) — At Least Once via
-      the outbox + idempotent consumer, see decisions.md. At Most Once / Exactly Once
-      (Kafka transactions) not explored yet.
-- [~] Patterns: Event Driven, Outbox (done, `OutboxRelay`), Saga, CQRS, Event Sourcing
-      (conceptually) — Saga/CQRS/Event Sourcing still pending. Decided to leave them for another day: only a
-      short docs section in decisions.md (why they are not implemented here), no code.
+- [x] Delivery guarantees (At Most Once, At Least Once, Exactly Once) — At Least Once via the outbox + idempotent consumer; effectively once
+      (at least once + idempotent consumers) is what the services do, with an end-to-end redelivery test. At Most Once and Kafka transactions
+      explained and deliberately not used. See decisions.md.
+- [x] Patterns: Event Driven, Outbox (done, `OutboxRelay`); Saga, CQRS and Event Sourcing explained conceptually in decisions.md (what would make
+      each one appear here), deliberately not implemented.
+- [ ] **Extra, later: implement a Saga.** Wanted, not for now. Idea: a `payment-service` that can fail, with `booking-service` cancelling the reservation as the compensation
+      (choreography first, orchestration as the comparison), reusing the outbox and the idempotent consumers. CQRS (a separate read store fed by the events) and Event Sourcing could follow the same way.
 - [x] **Micrometer Tracing (OpenTelemetry) across the services** — `slotwise-observability` module: `traceId`/`spanId`
       in the logs (ECS JSON), propagated through HTTP and Kafka headers, and carried across the outbox
       (`OutboxTraceContext`). Replaced the hand-rolled `CorrelationIdFilter` (deleted). No exporter yet: see

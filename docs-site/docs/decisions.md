@@ -1589,3 +1589,27 @@ nothing is delivered (Grafana's default would be an email with no SMTP).
 **Deliberately not done**: a contact point (email/webhook) for the alerts; a health endpoint for `notification-service`; build info in `/actuator/info`; counters of our own for HTTP errors (Micrometer already measures them);
 tracking the first-increment pitfall for counters added later (a new counter needs a method on the metrics class, and nothing enforces it).
 
+
+## Delivery guarantees: effectively once, and why not Kafka transactions (Fase 4)
+
+- **At most once** (a message may be lost, never repeated): commit the offset *before* processing, or a producer with `acks=0` and no retries. Not used: losing a reservation event is worse than seeing it twice.
+- **At least once** (never lost, maybe repeated): what the services do. The outbox keeps the event until the broker acknowledged it, and a consumer commits its offset after processing. The repeat is a re-send after "send acked, commit lost" (see the outbox section above).
+- **Exactly once** in Kafka means an idempotent producer plus transactions (`transactional.id`, consumers on `isolation.level=read_committed`). It makes *read from Kafka, process, write to Kafka* atomic. Our consumers write to
+  Postgres, which a Kafka transaction does not cover, so it would not remove the duplicate here, and the outbox already gives the producer side what matters (the event is not lost). Not adopted.
+- **What is used instead is effectively once**: at-least-once delivery + an idempotent consumer, so the *effect* happens once even if the message arrives twice. Booking has `processed_event`, audit a UNIQUE `event_id` with `ON CONFLICT DO NOTHING`, notification the same on its inbox row; all three
+  count the skipped repeat in `slotwise.events.duplicates`.
+- **Tested**: `redeliveredEvent_reachesTheTopicTwice_butIsProcessedOnce` (booking: the outbox row is un-published as if the commit had been lost, the relay re-sends, the topic holds the event twice, one `processed_event` row and one duplicate counted),
+  `duplicateEvent_storedOnce` (audit) and `sameEventTwice_oneRow` (notification).
+- **Deliberately not done**: Kafka transactions; a deduplication window instead of the permanent `processed_event` (it grows forever, see the outbox section).
+
+## Saga, CQRS and Event Sourcing: understood, not implemented (Fase 4)
+
+The course asks for them conceptually. None is implemented because the project has no problem each one solves, and each costs a lot. What would make each one appear here:
+
+- **Saga** (a business process across services, each with its own database, undone by compensating actions instead of one transaction). A reservation is one local transaction in `booking-service`; the other services only react to its event, so there is nothing to compensate. It would appear if a reservation had to
+  charge a payment in another service: *choreography* (booking publishes, payment reacts and publishes, booking reacts) or *orchestration* (a coordinator tells each service what to do), with "cancel the reservation" as the compensation for a failed payment. The outbox and the idempotent consumers are the pieces a saga needs, and they are in place.
+- **CQRS** (reads and writes with separate models, usually separate stores). Half is done: reads skip the entity and go straight to `record` DTOs, and read-only transactions go to the replica. It is still one model and one database. The full version is a separate read store fed by the events; `audit-service` is the closest thing, a read model built only from them, but nothing queries it for the business.
+- **Event Sourcing** (the events are the state; the current state is the fold of the event history). Here the state lives in tables and the events are notifications derived from it through the outbox, so losing an event never loses a reservation. `audit_event` is an append-only log, but it is a copy, not the source of truth. Event
+  Sourcing would add replay, snapshots and event schema versioning for no requirement this project has.
+
+All three are decisions to take when a requirement asks for them, not before.

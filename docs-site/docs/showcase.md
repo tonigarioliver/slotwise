@@ -109,11 +109,11 @@ The `409` is the `reservations_no_overlap` constraint plus a `SELECT ... FOR UPD
 
 ## The tests behind it
 
-The last full `mvn test` run, on Spring Boot 4.1.1: **71 tests, all passing**, against real Testcontainers (Postgres, Redis, Kafka) rather than mocks.
+The last full `mvn test` run, on Spring Boot 4.1.1: **72 tests, all passing**, against real Testcontainers (Postgres, Redis, Kafka) rather than mocks.
 
 | Module | Tests | What stands out |
 |---|---|---|
-| `booking-service` | 28 | two concurrent overlapping reservations: only one wins; the request's trace survives the outbox and Kafka (`create_continuesTheRequestTraceThroughOutboxAndKafka`); a poison message does not block the consumer; Redis write-through is immediate; the reservation counters count only what committed; `health`/`info` are public and `env` is not |
+| `booking-service` | 29 | two concurrent overlapping reservations: only one wins; the request's trace survives the outbox and Kafka (`create_continuesTheRequestTraceThroughOutboxAndKafka`); a poison message does not block the consumer; Redis write-through is immediate; the reservation counters count only what committed; `health`/`info` are public and `env` is not |
 | `audit-service` | 14 | a duplicate event is stored once; a poison message lands on the dead-letter topic with its original bytes |
 | `notification-service` | 21 | the inbox worker's retries, the Keycloak client, idempotent listener |
 | `slotwise-kafka-support` | 1 | a record that always fails is retried, then dead-lettered to `reservation-events.DLT` (and it proves the auto-configuration activates itself) |

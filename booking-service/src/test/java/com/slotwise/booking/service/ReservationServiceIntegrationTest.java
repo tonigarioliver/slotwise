@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import com.slotwise.observability.BusinessMeters;
+import com.slotwise.observability.BusinessMeters.EventConsumer;
 import com.slotwise.observability.BusinessMeters.ReservationOutcome;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.tracing.Span;
@@ -195,6 +196,38 @@ class ReservationServiceIntegrationTest {
             assertThat(this.capturingListener.headerTraceIds.get(reservation.id())).isEqualTo(traceId);
             assertThat(this.capturingListener.consumerTraceIds.get(reservation.id())).isEqualTo(traceId);
         });
+    }
+
+    // Effectively-once: the outbox delivers at least once, the idempotent consumer makes the effect happen once. The crash that
+    // makes the relay re-send (send acked, commit lost) is simulated by clearing published_at, so the same event reaches the topic twice.
+    @Test
+    void redeliveredEvent_reachesTheTopicTwice_butIsProcessedOnce() {
+        final ResourceDto resource = this.resourceService.create(
+                CreateResourceRequest.builder().name("Room Exactly Once").build());
+        final ReservationDto reservation = this.reservationService.create(ADMIN, CreateReservationRequest.builder()
+                .resourceId(resource.id())
+                .startTime(Instant.parse("2026-02-03T10:00:00Z"))
+                .endTime(Instant.parse("2026-02-03T11:00:00Z"))
+                .ownerSubject("user-once")
+                .build());
+        final String eventId = "reservation-created:" + reservation.id();
+        final double duplicates = BusinessMeters.duplicateEvents(this.meterRegistry, EventConsumer.BOOKING).count();
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                assertThat(this.deliveries(reservation.id())).isEqualTo(1));
+
+        this.jdbcClient.sql("UPDATE outbox_event SET published_at = NULL WHERE payload LIKE :p")
+                .param("p", "%\"reservationId\":" + reservation.id() + ",%").update();
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+            assertThat(this.deliveries(reservation.id())).isEqualTo(2);
+            assertThat(BusinessMeters.duplicateEvents(this.meterRegistry, EventConsumer.BOOKING).count()).isEqualTo(duplicates + 1);
+        });
+        assertThat(this.jdbcClient.sql("SELECT count(*) FROM processed_event WHERE id = :id").param("id", eventId)
+                .query(Long.class).single()).isEqualTo(1L);
+    }
+
+    private long deliveries(final Long reservationId) {
+        return this.capturingListener.received.stream().filter(e -> reservationId.equals(e.reservationId())).count();
     }
 
     @Test
