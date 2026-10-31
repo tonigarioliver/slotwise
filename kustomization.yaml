@@ -1,0 +1,26 @@
+# Everything Kubernetes needs for Slotwise, in code: `kubectl apply -k .` (or scripts/kind-up.sh for a local cluster from scratch).
+# It sits at the repository root because Kustomize only reads files inside its own directory, and the scripts live in postgres/.
+resources:
+  - k8s/postgres.yaml
+  - k8s/postgres-replica.yaml
+  - k8s/deployment-redis.yaml
+  - k8s/service-redis.yaml
+
+# ConfigMaps generated from the repository's own files (no copy to keep in sync). Kustomize appends a hash of the content to the name and rewrites
+# every reference, so changing a script gives a new name and the Pods that use it are rolled out.
+configMapGenerator:
+  - name: postgres-init
+    files:
+      - postgres/primary-init.sh
+      - postgres/audit-init.sh
+      - postgres/notification-init.sh
+  - name: postgres-replica-script
+    files:
+      - postgres/replica-entrypoint.sh
+
+# Secrets with the DEVELOPMENT values already in docker-compose.yml and the init scripts. Fine for a local learning cluster; not for production
+# (there: Sealed Secrets, Vault or the cloud's secret manager).
+secretGenerator:
+  - name: postgres-secret
+    literals:
+      - password=slotwise
