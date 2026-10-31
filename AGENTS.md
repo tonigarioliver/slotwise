@@ -43,7 +43,7 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
 - `docker-compose.yml` — local Postgres 17 (`slotwise`/`slotwise`/`slotwise`) and
   Keycloak 26 (OIDC Authorization Server, port `8081`, realm auto-imported from
   `keycloak/realm-export.json` via `--import-realm`).
-- `kustomization.yaml` (root) + `k8s/` + `scripts/kind-up.sh` — Kubernetes (Fase 6, in progress): Postgres primary and replica, Redis, Kafka, Keycloak and `audit-service` on a local kind cluster (`scripts/kind-up.sh` also builds and copies the service images; rerun it after changing code), all generated from files (`kubectl apply -k .`;
+- `kustomization.yaml` (root) + `k8s/` + `scripts/kind-up.sh` — Kubernetes (Fase 6, in progress): Postgres primary and replica, Redis, Kafka, Keycloak, `audit-service` and `booking-service` on a local kind cluster (`scripts/kind-up.sh` also builds and copies the service images; rerun it after changing code), all generated from files (`kubectl apply -k .`;
   the scripts of `postgres/` become ConfigMaps). `k8s/learning/` holds the learning experiments, not applied. See decisions.md.
 - `.sdkmanrc` — Java 25.0.4-tem, Maven 3.9.11.
 
@@ -168,6 +168,7 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
   rules hold the series names and tag values as text; `BusinessMetersContractTest` reads `grafana/` and fails if they mention something the code cannot emit. A new counter needs its enum value, a method on the service's metrics class and a test.
 - **A container cannot reach Keycloak by its public name.** `issuer-uri` is only the name written in the token (`KEYCLOAK_ISSUER_URI`, Keycloak's `KC_HOSTNAME` writes the same one), `jwk-set-uri` (`KEYCLOAK_JWK_SET_URI`) is
   where the keys are downloaded: in Docker point it at `http://keycloak:8080/realms/slotwise/protocol/openid-connect/certs`. Both set = the issuer is still validated (verified: another issuer gives 401).
+- **Kubernetes injects `<SERVICE>_PORT=tcp://ip:port` variables for every Service**, and Spring reads `REDIS_PORT`/`KAFKA_*`-style names expecting plain values (`booking-service` crash-looped on `REDIS_PORT=tcp://...`). Every Pod of ours sets `enableServiceLinks: false`; a new service must too.
 - **Telemetry defaults are one YAML in the module** (`slotwise-observability-defaults.yml`, lowest priority), so a service writes nothing; the Collector address is `COLLECTOR_URL` (default `http://localhost:4318`, the Docker image
   sets `http://otel-collector:4318`). Actuator exposes only `health` (+ probes) and `info`, public in booking and audit `SecurityConfig`; notification-service has no web server.
 - **Grafana alert rules are provisioned from `grafana/provisioning/alerting/` but nothing is delivered** (no contact point). "Service down" is `time() - max(timestamp(jvm_memory_used_bytes{...}))` because pushed metrics have no `up`.

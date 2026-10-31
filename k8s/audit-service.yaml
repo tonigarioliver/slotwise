@@ -25,6 +25,9 @@ spec:
       labels:
         app: audit-service
     spec:
+      # Kubernetes injects REDIS_PORT=tcp://10.96.x.x:6379 (and similar) for every Service in the namespace; Spring reads REDIS_PORT expecting a number and the
+      # service fails to start. The services find each other by DNS name, so these variables are not wanted.
+      enableServiceLinks: false
       containers:
         - name: audit-service
           image: slotwise/audit-service:dev

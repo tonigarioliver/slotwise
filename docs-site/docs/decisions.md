@@ -1675,7 +1675,7 @@ Learning Kubernetes step by step on a local **kind** cluster (`slotwise`; the no
 desired state, scaling, self-healing), a Service (stable address and DNS name over Pods that change IP), `NodePort` and `port-forward`, ConfigMap and Secret (base64 is not encryption), RBAC (`auth can-i`, a Role that reads ConfigMaps but not Secrets),
 and a StatefulSet with a PersistentVolumeClaim (data survives the Pod). Those experiments live in `k8s/learning/` and are not applied.
 
-**What is deployed for Slotwise now**: `audit-service`, Keycloak and Kafka (`k8s/audit-service.yaml`, `k8s/keycloak.yaml`, `k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
+**What is deployed for Slotwise now**: `booking-service`, `audit-service`, Keycloak and Kafka (`k8s/booking-service.yaml`, `k8s/audit-service.yaml`, `k8s/keycloak.yaml`, `k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
 (`k8s/deployment-redis.yaml` + `service-redis.yaml`, one replica: it is a cache and the Redisson locks). **Verified from a clean cluster**: the three databases from the init scripts exist, the primary sees the replica `streaming`, the replica is a standby that rejects
 writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row written to the primary appears on the replica. Killing `postgres-0` keeps its data (it comes back with the same name and the same volume).
 
@@ -1687,7 +1687,7 @@ writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row wri
 - **Start order is the application's job.** Kubernetes has no `depends_on`: the replica's script retries `pg_basebackup` every 2 s until the primary answers, and Pods stay `Pending`/not ready until their volume and probes allow it.
 - **The Secret holds development values in git** (the same ones as `docker-compose.yml` and the init scripts). Acceptable for a learning cluster, **not for production**.
 
-**Deliberately not done** (yet): `booking-service` and `notification-service` in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
+**Deliberately not done** (yet): `notification-service` in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
 a Postgres operator (failover, backups) instead of two hand-made StatefulSets; the `kubectl apply -k` hash names are not pruned (`apply --prune`).
 
 **Kafka in the cluster** (`k8s/kafka.yaml`): KRaft, one node that is broker and controller, a StatefulSet with a 1 GiB volume, the same settings as compose's `kafka`.
@@ -1716,3 +1716,10 @@ a Postgres operator (failover, backups) instead of two hand-made StatefulSets; t
   `kubectl rollout restart deployment/audit-service` because the Pod spec (the tag `:dev`) did not change.
 - **Verified**: 401 without a token, 200 with alice's (admin), 403 with bob's (normal user); 0 restarts, running as `app` (uid 10001), Flyway applied and the Kafka consumer started.
 - **Known and left for the next step**: there is no Collector in the cluster, so the telemetry exporters log connection errors (the image's `COLLECTOR_URL` default, `otel-collector`, does not exist here); no resource requests/limits yet (the next concept).
+
+**`booking-service` in the cluster** (`k8s/booking-service.yaml`), same shape as audit plus what is its own: Redis (`REDIS_HOST=redis`), the read replica (`DB_REPLICA_HOST=postgres-replica`, `DB_REPLICA_PORT=5432`, the container's own port) and the Secret `booking-db`.
+- **The service-links trap, hit for real.** The first Pod crash-looped with `failed to convert java.lang.String to int ("tcp://10.96.47.207:6379")`: for every Service in the namespace Kubernetes injects variables such as `REDIS_PORT=tcp://10.96.47.207:6379`, and `application.yml` reads `${REDIS_PORT:6379}` expecting a
+  number. **`enableServiceLinks: false`** on the Pod stops the injection; the services find each other by DNS name, so nothing is lost. It is in the template of both services (and in Kafka's StatefulSet, where it was written as a precaution for the same reason).
+- **Start order, seen working.** After a restart of the machine `audit-service` was in `CrashLoopBackOff` while Postgres and Kafka came back, and recovered by itself with no intervention: Kubernetes restarts what fails and the application tolerates the wait. That is why there is no `depends_on` here.
+- **Verified end to end in the cluster**: 401 without a token, resource created by admin, reservation 201, overlapping reservation 409, normal user creating a resource 403, a read 200, and the reservation's event reached `audit-service` through Kafka (`reservation-created:1`). Both Hikari pools (primary and replica)
+  connect and the replica holds the row; which query goes to which pool is not re-measured here (it was, with spans, in Fase 2, and there is no Collector in the cluster yet).

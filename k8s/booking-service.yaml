@@ -1,0 +1,55 @@
+# booking-service: the REST API that creates reservations and publishes their events (outbox -> Kafka). Same shape as audit-service.yaml; what is its own:
+# Redis (cache, locks, rate limit) and the read replica, which is why it has extra variables. Credentials come from the Secret `booking-db`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-service
+spec:
+  selector:
+    app: booking-service
+  ports:
+    - port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: booking-service
+  template:
+    metadata:
+      labels:
+        app: booking-service
+    spec:
+      # Kubernetes injects REDIS_PORT=tcp://10.96.x.x:6379 (and similar) for every Service in the namespace; Spring reads REDIS_PORT expecting a number and the
+      # service fails to start. The services find each other by DNS name, so these variables are not wanted.
+      enableServiceLinks: false
+      containers:
+        - name: booking-service
+          image: slotwise/booking-service:dev
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: slotwise-config
+            - secretRef:
+                name: booking-db
+          env:
+            # Reads (@Transactional(readOnly = true)) go to the replica; 5432 is the container's own port (5433 was only compose's host mapping).
+            - {name: DB_REPLICA_HOST, value: postgres-replica}
+            - {name: DB_REPLICA_PORT, value: "5432"}
+            - {name: REDIS_HOST, value: redis}
+          startupProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            periodSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8080}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            periodSeconds: 10
