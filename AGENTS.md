@@ -43,7 +43,7 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
 - `docker-compose.yml` — local Postgres 17 (`slotwise`/`slotwise`/`slotwise`) and
   Keycloak 26 (OIDC Authorization Server, port `8081`, realm auto-imported from
   `keycloak/realm-export.json` via `--import-realm`).
-- `kustomization.yaml` (root) + `k8s/` + `scripts/kind-up.sh` — Kubernetes (Fase 6, in progress): Postgres primary and replica, Redis, Kafka, Keycloak, `audit-service` and `booking-service` on a local kind cluster (`scripts/kind-up.sh` also builds and copies the service images; rerun it after changing code), all generated from files (`kubectl apply -k .`;
+- `kustomization.yaml` (root) + `k8s/` + `scripts/kind-up.sh` — Kubernetes (Fase 6, in progress): Postgres primary and replica, Redis, Kafka, Keycloak and the three services on a local kind cluster (`scripts/kind-up.sh` also builds and copies the service images; rerun it after changing code), all generated from files (`kubectl apply -k .`;
   the scripts of `postgres/` become ConfigMaps). `k8s/learning/` holds the learning experiments, not applied. See decisions.md.
 - `.sdkmanrc` — Java 25.0.4-tem, Maven 3.9.11.
 

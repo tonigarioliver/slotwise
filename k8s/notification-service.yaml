@@ -1,0 +1,31 @@
+# notification-service: consumes reservation-events into an inbox table and a worker "sends" the email. It has NO web server, so there is no Service (nobody
+# calls it) and no HTTP probes (see decisions.md). Its own configuration: the Keycloak admin API address (service account notification-service-client) and
+# the Secret `notification-secrets` (database user and password, and that client's secret: development values).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      # See booking-service.yaml: Kubernetes would inject <SERVICE>_PORT=tcp://... variables that Spring tries to read as numbers.
+      enableServiceLinks: false
+      containers:
+        - name: notification-service
+          image: slotwise/notification-service:dev
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: slotwise-config
+            - secretRef:
+                name: notification-secrets
+          env:
+            # The admin API is called by service name (a real call), unlike the public issuer name that only appears in tokens.
+            - {name: KEYCLOAK_BASE_URL, value: "http://keycloak:8080"}

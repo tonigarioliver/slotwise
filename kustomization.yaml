@@ -9,6 +9,7 @@ resources:
   - k8s/keycloak.yaml
   - k8s/audit-service.yaml
   - k8s/booking-service.yaml
+  - k8s/notification-service.yaml
 
 # ConfigMaps generated from the repository's own files (no copy to keep in sync). Kustomize appends a hash of the content to the name and rewrites
 # every reference, so changing a script gives a new name and the Pods that use it are rolled out.
@@ -51,3 +52,8 @@ secretGenerator:
     literals:
       - DB_USER=slotwise
       - DB_PASSWORD=slotwise
+  - name: notification-secrets
+    literals:
+      - DB_USER=slotwise_notification
+      - DB_PASSWORD=slotwise_notification
+      - KEYCLOAK_CLIENT_SECRET=notification-service-secret

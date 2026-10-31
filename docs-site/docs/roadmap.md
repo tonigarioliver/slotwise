@@ -185,7 +185,8 @@ communicating via Kafka.
 ## Fase 6 (Meses 9-12) — Kubernetes
 
 - [~] Pods, Deployments, Services, ConfigMaps, Secrets, Ingress — Pods, Deployments, Services, ConfigMaps, Secrets and a StatefulSet with volumes learned on a local kind cluster; Postgres (primary and replica) and Redis
-      deployed from code with `kubectl apply -k .` (`scripts/kind-up.sh` rebuilds it). Kafka and Keycloak deployed too (`k8s/kafka.yaml`, `k8s/keycloak.yaml`). `audit-service` and `booking-service` deployed too (`k8s/audit-service.yaml` is the template). `notification-service` and Ingress pending, see decisions.md.
+      deployed from code with `kubectl apply -k .` (`scripts/kind-up.sh` rebuilds it). Kafka and Keycloak deployed too (`k8s/kafka.yaml`, `k8s/keycloak.yaml`). The three services deployed too (`k8s/audit-service.yaml` is the template; notification has no Service nor probes). Ingress, requests/limits and HPA pending.
+- [ ] **Later: the telemetry stack in the cluster** (OpenTelemetry Collector + Grafana LGTM, as in docker-compose). Until then the three services log exporter connection errors (harmless: the services work); the alternative of switching the export off in the cluster was not chosen., see decisions.md.
 - [ ] Scaling (HPA, Requests/Limits), Networking — "nivel senior serio."
 
 ## Resilience & architecture (not yet slotted into a numbered phase)

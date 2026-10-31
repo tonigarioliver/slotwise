@@ -1675,7 +1675,7 @@ Learning Kubernetes step by step on a local **kind** cluster (`slotwise`; the no
 desired state, scaling, self-healing), a Service (stable address and DNS name over Pods that change IP), `NodePort` and `port-forward`, ConfigMap and Secret (base64 is not encryption), RBAC (`auth can-i`, a Role that reads ConfigMaps but not Secrets),
 and a StatefulSet with a PersistentVolumeClaim (data survives the Pod). Those experiments live in `k8s/learning/` and are not applied.
 
-**What is deployed for Slotwise now**: `booking-service`, `audit-service`, Keycloak and Kafka (`k8s/booking-service.yaml`, `k8s/audit-service.yaml`, `k8s/keycloak.yaml`, `k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
+**What is deployed for Slotwise now**: the three services (`k8s/booking-service.yaml`, `audit-service.yaml`, `notification-service.yaml`), Keycloak and Kafka (`k8s/booking-service.yaml`, `k8s/audit-service.yaml`, `k8s/keycloak.yaml`, `k8s/kafka.yaml`, see below), the Postgres primary (`k8s/postgres.yaml`, StatefulSet + 1 GiB volume), its streaming read replica (`k8s/postgres-replica.yaml`, same idea as compose's `postgres-replica`) and Redis
 (`k8s/deployment-redis.yaml` + `service-redis.yaml`, one replica: it is a cache and the Redisson locks). **Verified from a clean cluster**: the three databases from the init scripts exist, the primary sees the replica `streaming`, the replica is a standby that rejects
 writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row written to the primary appears on the replica. Killing `postgres-0` keeps its data (it comes back with the same name and the same volume).
 
@@ -1687,7 +1687,7 @@ writes (`cannot execute CREATE TABLE in a read-only transaction`), and a row wri
 - **Start order is the application's job.** Kubernetes has no `depends_on`: the replica's script retries `pg_basebackup` every 2 s until the primary answers, and Pods stay `Pending`/not ready until their volume and probes allow it.
 - **The Secret holds development values in git** (the same ones as `docker-compose.yml` and the init scripts). Acceptable for a learning cluster, **not for production**.
 
-**Deliberately not done** (yet): `notification-service` in the cluster, Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
+**Deliberately not done** (yet): Ingress, requests/limits and HPA (the next parts); RBAC per application with its own ServiceAccount; encrypting `etcd` at rest; an external secret manager (Sealed Secrets, Vault, a cloud's);
 a Postgres operator (failover, backups) instead of two hand-made StatefulSets; the `kubectl apply -k` hash names are not pruned (`apply --prune`).
 
 **Kafka in the cluster** (`k8s/kafka.yaml`): KRaft, one node that is broker and controller, a StatefulSet with a 1 GiB volume, the same settings as compose's `kafka`.
@@ -1723,3 +1723,9 @@ a Postgres operator (failover, backups) instead of two hand-made StatefulSets; t
 - **Start order, seen working.** After a restart of the machine `audit-service` was in `CrashLoopBackOff` while Postgres and Kafka came back, and recovered by itself with no intervention: Kubernetes restarts what fails and the application tolerates the wait. That is why there is no `depends_on` here.
 - **Verified end to end in the cluster**: 401 without a token, resource created by admin, reservation 201, overlapping reservation 409, normal user creating a resource 403, a read 200, and the reservation's event reached `audit-service` through Kafka (`reservation-created:1`). Both Hikari pools (primary and replica)
   connect and the replica holds the row; which query goes to which pool is not re-measured here (it was, with spans, in Fase 2, and there is no Collector in the cluster yet).
+
+**`notification-service` in the cluster** (`k8s/notification-service.yaml`): the third service, and the one with no web server.
+- **No Service and no HTTP probes.** Nobody calls it (it only consumes from Kafka), so there is nothing to put a Service in front of or to probe. Kubernetes still restarts the container if the process exits (a crash, a failed start); what it cannot see is a process that is alive but stuck (a consumer that stopped processing).
+  Left like compose (no healthcheck either). Options if it is needed later: an `exec` probe on a liveness mark the app refreshes, a management HTTP port (not tried: unverified with `web-application-type: none`), or alerting on consumer lag.
+- **Its own configuration**: `KEYCLOAK_BASE_URL=http://keycloak:8080` (a real call to the admin API, so by service name, unlike the public issuer name) and the Secret `notification-secrets` (database user and password, and the service account's client secret; development values).
+- **Verified in the cluster**: a reservation by alice ends `SENT` ("Notification sent to alice@...") and one with an owner that does not exist in Keycloak ends `FAILED` at the first attempt with `Keycloak has no user ghost-user-0000` (a permanent error is not retried). The telemetry exporters log connection errors because the cluster has no Collector yet.
