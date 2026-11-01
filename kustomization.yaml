@@ -5,6 +5,7 @@ resources:
   - k8s/postgres-replica.yaml
   - k8s/deployment-redis.yaml
   - k8s/service-redis.yaml
+  - k8s/networkpolicy-redis.yaml
   - k8s/kafka.yaml
   - k8s/keycloak.yaml
   - k8s/audit-service.yaml
