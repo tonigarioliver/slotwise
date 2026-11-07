@@ -1,0 +1,34 @@
+# The namespace is default-deny, so the Gateway's Envoy Pod (labelled by Istio with the Gateway's name) must be opened to the outside, and the two web
+# services to the Gateway. Nobody else may call them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-open-on-80
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: slotwise-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-services-only-from-the-gateway
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app, operator: In, values: [booking-service, audit-service]}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: slotwise-gateway
+      ports:
+        - port: 8080
+        - port: 8082

@@ -10,6 +10,8 @@ resources:
   - k8s/networkpolicy-kafka-keycloak.yaml
   - k8s/networkpolicy-default-deny.yaml
   - k8s/networkpolicy-telemetry.yaml
+  - k8s/networkpolicy-gateway.yaml
+  - k8s/istio/gateway.yaml
   - k8s/kafka.yaml
   - k8s/keycloak.yaml
   - k8s/otel-collector.yaml

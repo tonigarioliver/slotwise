@@ -1,0 +1,14 @@
+# What `istioctl install -f` reads (scripts/kind-up.sh runs it). Profile "minimal" = only istiod, the control plane that watches the Gateway API YAMLs;
+# it has no ingress gateway of its own: istiod creates one Envoy Deployment per `Gateway` (k8s/istio/gateway.yaml). Step 1 of Istio is only the
+# entry: our Pods get no sidecar (the namespace is not labelled for injection), so nothing of the services changes.
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: minimal
+  components:
+    pilot:
+      k8s:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi

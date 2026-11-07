@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")/.."
 kind get clusters | grep -qx slotwise || kind create cluster --name slotwise
-for image in postgres:17 redis:7 apache/kafka:4.1.0 quay.io/keycloak/keycloak:26.0 otel/opentelemetry-collector-contrib:0.163.1 grafana/otel-lgtm:0.37.0; do
+for image in postgres:17 redis:7 apache/kafka:4.1.0 quay.io/keycloak/keycloak:26.0 otel/opentelemetry-collector-contrib:0.163.1 grafana/otel-lgtm:0.37.0 istio/pilot:1.31.4 istio/proxyv2:1.31.4; do
     docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
     docker save "$image" | docker exec -i slotwise-control-plane ctr --namespace=k8s.io images import - >/dev/null
 done
@@ -13,4 +13,9 @@ for service in audit-service booking-service notification-service; do
     docker build -q --build-arg SERVICE="$service" -t "slotwise/$service:dev" . >/dev/null
     docker save "slotwise/$service:dev" | docker exec -i slotwise-control-plane ctr --namespace=k8s.io images import - >/dev/null
 done
+# Istio (the entry to the cluster): the Gateway API CRDs (server-side apply: some are too big for the usual one) and the control plane, before the
+# kustomization, which contains a Gateway. Needs istioctl 1.31.4 on the PATH (see decisions.md).
+command -v istioctl >/dev/null || { echo "istioctl 1.31.4 is needed, see decisions.md" >&2; exit 1; }
+kubectl apply --server-side -f k8s/istio/gateway-api-crds-v1.6.3.yaml >/dev/null
+istioctl install -f k8s/istio/istio-operator.yaml -y
 kubectl apply -k .

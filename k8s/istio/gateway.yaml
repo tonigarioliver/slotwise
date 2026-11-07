@@ -1,0 +1,62 @@
+# The entry to the cluster, in Gateway API terms. The Gateway is the door (what to listen on); each HTTPRoute says which paths go to which Service.
+# Istio sees the Gateway (gatewayClassName: istio) and starts an Envoy Pod for it called slotwise-gateway-istio. The services still validate the JWT
+# themselves: the Gateway only routes, so a request without a token reaches booking and gets its 401 there.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: slotwise-gateway
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    # How Istio generates the Gateway's Service: see the ConfigMap below.
+    parametersRef:
+      group: ""
+      kind: ConfigMap
+      name: slotwise-gateway-options
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+# kind has no cloud load balancer, so the default Service type (LoadBalancer) would stay <pending> and the Gateway would never be Programmed.
+# A NodePort is reachable on the node's Docker address instead.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slotwise-gateway-options
+data:
+  service: |
+    spec:
+      type: NodePort
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: booking-routes
+spec:
+  parentRefs:
+    - name: slotwise-gateway
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /api/resources}
+        - path: {type: PathPrefix, value: /api/reservations}
+      backendRefs:
+        - name: booking-service
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: audit-routes
+spec:
+  parentRefs:
+    - name: slotwise-gateway
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /api/audit-events}
+      backendRefs:
+        - name: audit-service
+          port: 8082
