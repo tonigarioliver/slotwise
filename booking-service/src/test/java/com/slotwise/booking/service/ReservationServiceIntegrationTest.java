@@ -389,7 +389,7 @@ class ReservationServiceIntegrationTest {
                 .resourceId(resource.id())
                 .startTime(Instant.parse("2026-07-01T10:00:00Z"))
                 .endTime(Instant.parse("2026-07-01T11:00:00Z"))
-                .build()))
+                .build(), "test-caller", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ownerSubject");
     }
@@ -428,6 +428,28 @@ class ReservationServiceIntegrationTest {
                 .isInstanceOf(ReservationConflictException.class);
         assertThat(this.reservations(ReservationOutcome.CREATED)).isEqualTo(created + 1);
         assertThat(this.reservations(ReservationOutcome.CONFLICT)).isEqualTo(conflict + 1);
+    }
+
+    // A replayed answer created nothing, so it must not be counted as a created reservation.
+    @Test
+    void create_replayedWithTheSameKey_isNotCountedTwice() {
+        final double created = this.reservations(ReservationOutcome.CREATED);
+        final ResourceDto resource = this.resourceService.create(
+                CreateResourceRequest.builder().name("Room Replay Counter").build());
+        final CreateReservationRequest request = CreateReservationRequest.builder()
+                .resourceId(resource.id())
+                .startTime(Instant.parse("2026-03-02T10:00:00Z"))
+                .endTime(Instant.parse("2026-03-02T11:00:00Z"))
+                .ownerSubject("user-replay")
+                .build();
+
+        final IdempotentResult<ReservationDto> first = this.reservationService.create(ADMIN, request, "replay-counter-key");
+        final IdempotentResult<ReservationDto> retry = this.reservationService.create(ADMIN, request, "replay-counter-key");
+
+        assertThat(first.replayed()).isFalse();
+        assertThat(retry.replayed()).isTrue();
+        assertThat(retry.value()).isEqualTo(first.value());
+        assertThat(this.reservations(ReservationOutcome.CREATED)).isEqualTo(created + 1);
     }
 
     private double reservations(final ReservationOutcome outcome) {

@@ -1,6 +1,7 @@
 package com.slotwise.booking.controller;
 
 import com.slotwise.booking.model.ApiErrorResponse;
+import com.slotwise.booking.service.IdempotencyKeyReusedException;
 import com.slotwise.booking.service.ReservationConflictException;
 import com.slotwise.booking.service.ReservationOwnerNotAllowedException;
 import com.slotwise.booking.service.ResourceNotFoundException;
@@ -47,6 +48,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ReservationConflictException.class)
     public ResponseEntity<ApiErrorResponse> handleConflict(ReservationConflictException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiErrorResponse.builder().message(ex.getMessage()).build());
+    }
+
+    @ExceptionHandler(IdempotencyKeyReusedException.class)
+    public ResponseEntity<ApiErrorResponse> handleIdempotencyKeyReused(IdempotencyKeyReusedException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(ApiErrorResponse.builder().message(ex.getMessage()).build());
     }
 

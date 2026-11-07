@@ -121,6 +121,21 @@ To book on someone else's behalf (admin token), add `"ownerSubject":"<that user'
 `notification-service` looks the owner up in Keycloak by that id; an `ownerSubject` that isn't a real
 Keycloak user id ends up `FAILED` instead of notified.
 
+### Retry safely: `Idempotency-Key`
+
+If the response to a `POST` may have been lost (a timeout), send the same `Idempotency-Key` on the retry. The first call creates the reservation; the retry returns the **same** `201` and body, with the header `Idempotent-Replayed: true`, and creates nothing. Without the key, that retry would be a `409` (it overlaps with its own reservation).
+
+```bash
+KEY=$(uuidgen)   # one per action, reused only for retries of that action
+curl -s -i -X POST http://localhost:8080/api/reservations \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"resourceId":1,"startTime":"2026-09-02T10:00:00Z","endTime":"2026-09-02T11:00:00Z"}'
+# run it again with the same $KEY: 201, the same id, and "Idempotent-Replayed: true"
+```
+
+The key belongs to the caller. Using it with a different request is a `422`. It works the same on `POST /api/resources`.
+
 ### Follow the event
 
 ```bash

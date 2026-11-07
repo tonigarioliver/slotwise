@@ -145,6 +145,7 @@ roadmap (Spring Boot advanced → PostgreSQL internals → Redis → Kafka → D
 - **Reservation `ownerSubject` is the caller unless an admin names someone else** (`ReservationService.create(Caller, request)`
   resolves it; the controller only builds the `Caller`). Don't take an owner from the request body without that check.
   Controllers stay thin: translate HTTP, delegate; business and authorization rules live in services.
+- **`POST /api/reservations` and `POST /api/resources` accept an `Idempotency-Key`** (`IdempotencyService`, table `idempotency_record`). `execute` is `Propagation.MANDATORY`: call it from inside a `@Transactional` method (that is what keeps the key and the create atomic), never from the orchestrator, which has no transaction. The key is per caller (token subject), not per owner. A replay must not be counted in metrics (`IdempotentResult.replayed()`). The rows are never purged yet.
 - **Spring Data Redis writes the cache asynchronously with Lettuce by default** (`put` is fire-and-forget), so a
   read right after a `@CachePut` could return the old value — a real violation of the Write-Through in
   `ResourceService`, seen as an intermittent `ResourceServiceCacheTest` failure (~2%, ~20% under CPU load). Fixed with

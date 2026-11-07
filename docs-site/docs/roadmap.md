@@ -194,7 +194,7 @@ communicating via Kafka.
 - [~] **Retry**, **Bulkhead** (Resilience4j) — Kafka consumer retries with exponential backoff are done (configurable,
       `slotwise.kafka.retry.*`, ending on the DLT); Resilience4j `Retry`/`Bulkhead` on outgoing calls (e.g. the
       Keycloak client) still pending.
-- [ ] **Idempotencia** (idempotency keys/handling for APIs and consumers).
+- [x] **Idempotencia** (idempotency keys/handling for APIs and consumers) — consumers were already idempotent (`event_id`, `processed_event`); the API now accepts an `Idempotency-Key` header on `POST /api/reservations` and `POST /api/resources`: a retry returns the stored response instead of a `409` or a duplicate. Postgres table `idempotency_record` (`V5`), checked with one `INSERT ... ON CONFLICT DO NOTHING` inside the create's own transaction; see decisions.md. Left: purging old keys.
 - [x] **DDD** (Domain-Driven Design), **Hexagonal Architecture**, **Clean Architecture** — understood, not implemented: explained with examples from this code (value object `TimeSlot`, the lifecycle of a reservation, ports and adapters) and the cost of applying it to the whole project judged too high for the gain; see decisions.md. Left as an option: only `TimeSlot` as a value object.
 
 !!! warning "Past Fase 6"

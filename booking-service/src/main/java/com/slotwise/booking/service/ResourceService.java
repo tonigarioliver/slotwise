@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
+import org.jspecify.annotations.Nullable;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.core.convert.ConversionService;
@@ -27,9 +28,23 @@ public class ResourceService {
     private final ResourceRepository resourceRepository;
     private final ConversionService conversionService;
     private final CacheStampedeGuard cacheStampedeGuard;
+    private final IdempotencyService idempotencyService;
 
     @Transactional
     public ResourceDto create(@NotNull @Valid CreateResourceRequest request) {
+        return this.createResource(request);
+    }
+
+    // Same create, safe to retry: with an Idempotency-Key a second request returns the stored resource instead of creating a duplicate
+    // (nothing else makes two resources with the same name collide). The key belongs to whoever calls.
+    @Transactional
+    public IdempotentResult<ResourceDto> create(@NotNull @Valid CreateResourceRequest request, @NotNull String callerSubject,
+            @Nullable String idempotencyKey) {
+        return this.idempotencyService.execute(callerSubject, idempotencyKey, "POST /api/resources", request, ResourceDto.class,
+                () -> this.createResource(request));
+    }
+
+    private ResourceDto createResource(final CreateResourceRequest request) {
         final Resource resource = new Resource();
         resource.setName(request.name());
         resource.setDescription(request.description());

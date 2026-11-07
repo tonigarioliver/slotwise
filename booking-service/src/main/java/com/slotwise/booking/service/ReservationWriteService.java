@@ -1,6 +1,5 @@
 package com.slotwise.booking.service;
 
-import com.slotwise.events.ReservationCreatedEvent;
 import com.slotwise.booking.config.ReservationProperties;
 import com.slotwise.booking.data.OutboxEvent;
 import com.slotwise.booking.data.OutboxEventRepository;
@@ -11,11 +10,13 @@ import com.slotwise.booking.data.Resource;
 import com.slotwise.booking.data.ResourceRepository;
 import com.slotwise.booking.model.CreateReservationRequest;
 import com.slotwise.booking.model.ReservationDto;
+import com.slotwise.events.ReservationCreatedEvent;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -42,9 +43,18 @@ public class ReservationWriteService {
     private final OutboxEventRepository outboxEventRepository;
     private final OutboxTraceContext outboxTraceContext;
     private final JsonMapper jsonMapper;
+    private final IdempotencyService idempotencyService;
 
+    // The key is optional: without it this is the plain create. With it, a retry of the same request returns the stored answer and
+    // creates nothing (see IdempotencyService). It belongs to whoever calls, not to the owner an admin may name in the request.
     @Transactional
-    public ReservationDto create(@NotNull @Valid CreateReservationRequest request) {
+    public IdempotentResult<ReservationDto> create(@NotNull @Valid CreateReservationRequest request, @NotNull String callerSubject,
+            @Nullable String idempotencyKey) {
+        return this.idempotencyService.execute(callerSubject, idempotencyKey, "POST /api/reservations", request, ReservationDto.class,
+                () -> this.book(request));
+    }
+
+    private ReservationDto book(final CreateReservationRequest request) {
         // The controller always fills the owner in; this keeps direct callers (tests, other services) from creating
         // an ownerless reservation now that the request field is optional.
         if (!StringUtils.hasText(request.ownerSubject())) {

@@ -30,19 +30,27 @@ public class ReservationService {
     // The owner is the caller unless an admin names someone else. A client-supplied owner used to be taken as-is,
     // which let any user create reservations (and trigger notifications) in another user's name.
     public ReservationDto create(@NotNull Caller caller, @NotNull @Valid CreateReservationRequest request) {
+        return this.create(caller, request, null).value();
+    }
+
+    // With an Idempotency-Key a retry gets the stored answer back (replayed = true): nothing was created, so nothing is counted.
+    public IdempotentResult<ReservationDto> create(@NotNull Caller caller, @NotNull @Valid CreateReservationRequest request,
+            @Nullable String idempotencyKey) {
         final String owner = resolveOwner(caller, request.ownerSubject());
         // Counted here and not in ReservationWriteService: this method has no transaction, so the write one has already
         // committed (or rolled back) when we count, and a rolled-back reservation is never counted as created.
         try {
-            final ReservationDto created = this.reservationWriteService.create(request.toBuilder().ownerSubject(owner).build());
-            this.bookingMetrics.reservationCreated();
+            final IdempotentResult<ReservationDto> created = this.reservationWriteService.create(
+                    request.toBuilder().ownerSubject(owner).build(), caller.subject(), idempotencyKey);
+            if (!created.replayed()) {
+                this.bookingMetrics.reservationCreated();
+            }
             return created;
         } catch (ReservationConflictException e) {
             this.bookingMetrics.reservationConflict();
             throw e;
         }
     }
-
 
     private static String resolveOwner(final Caller caller, final @Nullable String requested) {
         if (!StringUtils.hasText(requested) || requested.equals(caller.subject())) {
