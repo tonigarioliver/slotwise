@@ -1,0 +1,48 @@
+# Same idea as networkpolicy-redis.yaml: a Pod that a policy selects only accepts what a rule allows.
+# This is a second wall next to the database roles (each service has its own database and user, and CONNECT is revoked from PUBLIC):
+# a Pod that has no business with Postgres cannot even open the connection.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-only-from-its-clients
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # the three services, one database each, plus the replica, which connects to the primary to copy its data
+        - podSelector:
+            matchLabels:
+              app: booking-service
+        - podSelector:
+            matchLabels:
+              app: audit-service
+        - podSelector:
+            matchLabels:
+              app: notification-service
+        - podSelector:
+            matchLabels:
+              app: postgres-replica
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-replica-only-from-booking
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres-replica
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: booking-service
+      ports:
+        - port: 5432
