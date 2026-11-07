@@ -70,6 +70,17 @@ public class NotificationWriteService {
     // error, the attempts used up, a lease that expired with none left). They are counted when set, not after the commit: these are one-row
     // transactions, and a commit failing right there would overcount by one.
 
+    // The Keycloak circuit breaker is open: Keycloak is down, not this notification. Give back the attempt the claim counted and try again after
+    // the backoff, so an outage does not use up the attempts (and end as FAILED) of every pending notification. Not counted as a retry.
+    @Transactional
+    public void deferWithoutAttempt(@NotNull final Long id, @NotNull final String reason) {
+        this.notificationRepository.findById(id).ifPresent(n -> {
+            n.setAttempts(n.getAttempts() - 1);
+            n.setLastError(reason);
+            n.setNextAttemptAt(Instant.now().plus(this.notificationProperties.backoff()));
+        });
+    }
+
     // A failure that may go away: retry after backoff, unless the attempts are used up.
     @Transactional
     public void recordTransientFailure(@NotNull final Long id, @NotNull final String error) {

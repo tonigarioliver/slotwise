@@ -191,10 +191,10 @@ communicating via Kafka.
 
 ## Resilience & architecture (not yet slotted into a numbered phase)
 
-- [~] **Retry**, **Bulkhead** (Resilience4j) — Kafka consumer retries with exponential backoff are done (configurable,
-      `slotwise.kafka.retry.*`, ending on the DLT). **Bulkhead done** with Resilience4j on `POST /api/reservations` (at most 5 creates at once,
-      then a 503 with `Retry-After`; `application.yml`, tested). **Circuit breaker** on the Keycloak lookup of `notification-service` still pending.
-      Retry on that lookup deliberately not added (the Inbox worker already retries with persisted backoff); see decisions.md.
+- [x] **Retry**, **Bulkhead** (Resilience4j) — Kafka consumer retries with exponential backoff (configurable, `slotwise.kafka.retry.*`, ending on the DLT);
+      **Bulkhead** with Resilience4j on `POST /api/reservations` (at most 5 creates at once, then a 503 with `Retry-After`); **circuit breaker** on the
+      Keycloak lookup of `notification-service` (it opens after an outage and the worker puts the notifications back without spending their attempts).
+      Retry on the Keycloak lookup deliberately not added (the Inbox worker already retries with persisted backoff); see decisions.md. Not redeployed to the kind cluster.
 - [x] **Idempotencia** (idempotency keys/handling for APIs and consumers) — consumers were already idempotent (`event_id`, `processed_event`); the API now accepts an `Idempotency-Key` header on `POST /api/reservations` and `POST /api/resources`: a retry returns the stored response instead of a `409` or a duplicate. Postgres table `idempotency_record` (`V5`), checked with one `INSERT ... ON CONFLICT DO NOTHING` inside the create's own transaction; see decisions.md. Left: purging old keys.
 - [x] **DDD** (Domain-Driven Design), **Hexagonal Architecture**, **Clean Architecture** — understood, not implemented: explained with examples from this code (value object `TimeSlot`, the lifecycle of a reservation, ports and adapters) and the cost of applying it to the whole project judged too high for the gain; see decisions.md. Left as an option: only `TimeSlot` as a value object.
 

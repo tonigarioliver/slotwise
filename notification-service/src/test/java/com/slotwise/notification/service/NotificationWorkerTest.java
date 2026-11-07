@@ -15,6 +15,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import com.slotwise.observability.BusinessMeters;
 import com.slotwise.observability.BusinessMeters.NotificationOutcome;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -129,6 +131,27 @@ class NotificationWorkerTest {
         assertThat(this.worker.processNext()).isFalse(); // FAILED rows are never retried
         assertThat(this.count(NotificationOutcome.RETRY)).isEqualTo(this.retry + 2); // attempts 1 and 2 were retried, the 3rd failed for good
         assertThat(this.count(NotificationOutcome.FAILED)).isEqualTo(this.failed + 1);
+    }
+
+    // The Keycloak circuit breaker is open (the mock stands for the real client throwing what the breaker throws): an outage is not this
+    // notification's fault, so the attempt the claim counted is given back and the row is only delayed. max-attempts is 3 here: if each
+    // deferral cost an attempt, the third would end as FAILED.
+    @Test
+    void openCircuitBreaker_defersWithoutSpendingAnAttempt() {
+        final CircuitBreaker breaker = CircuitBreaker.ofDefaults("keycloak");
+        breaker.transitionToOpenState();
+        when(this.keycloakUserClient.findEmail(anyString()))
+                .thenThrow(CallNotPermittedException.createCallNotPermittedException(breaker));
+
+        for (int i = 0; i < 4; i++) {
+            this.makeDueAgain();
+            assertThat(this.worker.processNext()).isTrue();
+        }
+
+        assertThat(this.row()).containsEntry("status", "PENDING").containsEntry("attempts", 0).containsEntry("delayed", true);
+        assertThat(this.row().get("last_error").toString()).contains("circuit breaker");
+        assertThat(this.count(NotificationOutcome.RETRY)).isEqualTo(this.retry);
+        assertThat(this.count(NotificationOutcome.FAILED)).isEqualTo(this.failed);
     }
 
     @Test

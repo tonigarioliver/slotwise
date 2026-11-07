@@ -46,3 +46,20 @@ slotwise:
     realm: slotwise
     client-id: notification-service-client
     client-secret: ${KEYCLOAK_CLIENT_SECRET:notification-service-secret}
+
+# Resilience4j. keycloak: the circuit breaker of the user lookup (KeycloakUserClient). After 5 calls with at least half failing (an outage, not a
+# missing user: only IllegalStateException is a failure, PermanentNotificationException means Keycloak answered) it opens for 30 s and the
+# worker puts the notifications back without spending their attempts; then it lets 2 calls through to see if Keycloak is back.
+resilience4j:
+  circuitbreaker:
+    instances:
+      keycloak:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - java.lang.IllegalStateException

@@ -1,6 +1,7 @@
 package com.slotwise.notification.service;
 
 import com.slotwise.notification.config.KeycloakProperties;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -19,6 +20,10 @@ public class KeycloakUserClient {
 
     // Throws PermanentNotificationException when retrying can't help (unknown user, no email);
     // any other failure (network, 5xx, token problems) is an IllegalStateException = transient.
+    // Circuit breaker (application.yml, resilience4j.circuitbreaker.instances.keycloak): while Keycloak is down it stops calling it and throws
+    // CallNotPermittedException, which NotificationWorker turns into "try later" without spending an attempt. Only calls through the Spring
+    // proxy are covered (the worker's), not one made on an instance built by hand.
+    @CircuitBreaker(name = "keycloak")
     public String findEmail(final String subject) {
         try {
             return this.lookup(subject, this.keycloakTokenProvider.token());

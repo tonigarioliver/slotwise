@@ -1,6 +1,7 @@
 package com.slotwise.notification.service;
 
 import com.slotwise.notification.data.Notification;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +48,10 @@ public class NotificationWorker {
         } catch (PermanentNotificationException e) {
             log.warn("Notification {} failed permanently: {}", notification.getEventId(), e.getMessage());
             this.notificationWriteService.markFailed(notification.getId(), e.getMessage());
+            return true;
+        } catch (CallNotPermittedException e) {
+            log.warn("Notification {} deferred: Keycloak circuit breaker is open", notification.getEventId());
+            this.notificationWriteService.deferWithoutAttempt(notification.getId(), "Keycloak circuit breaker is open");
             return true;
         } catch (RuntimeException e) {
             log.warn("Notification {} attempt {} failed: {}", notification.getEventId(), notification.getAttempts(), e.getMessage());
