@@ -195,7 +195,7 @@ communicating via Kafka.
       `slotwise.kafka.retry.*`, ending on the DLT); Resilience4j `Retry`/`Bulkhead` on outgoing calls (e.g. the
       Keycloak client) still pending.
 - [ ] **Idempotencia** (idempotency keys/handling for APIs and consumers).
-- [ ] **DDD** (Domain-Driven Design), **Hexagonal Architecture**, **Clean Architecture**.
+- [x] **DDD** (Domain-Driven Design), **Hexagonal Architecture**, **Clean Architecture** — understood, not implemented: explained with examples from this code (value object `TimeSlot`, the lifecycle of a reservation, ports and adapters) and the cost of applying it to the whole project judged too high for the gain; see decisions.md. Left as an option: only `TimeSlot` as a value object.
 
 !!! warning "Past Fase 6"
 
