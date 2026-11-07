@@ -206,3 +206,4 @@ communicating via Kafka.
 
 - [ ] **GraalVM native images** (the biggest size and start-up cut). Wanted, after everything else: the library route to telemetry is native-compatible, but the Logback
       OpenTelemetry appender in native is unverified, and Redisson/Hibernate need checking. Layered jars (Fase 5) come first.
+- [ ] **Istio, step 2: the mesh** (optional, not sure it will be done). The entry (Gateway API, step 1) is done and stays in Fase 6. This would add sidecar injection for our Pods, mTLS between services, Istio's `RequestAuthentication`/`AuthorizationPolicy` (JWT at the edge) and rate limits, TLS on the Gateway and Keycloak behind it. Cost to expect: one Envoy sidecar per Pod (8 Pods, tens of MB each) and the network policies reviewed for the sidecars; see decisions.md ("Not done (step 2)").
