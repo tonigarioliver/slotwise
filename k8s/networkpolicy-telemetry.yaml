@@ -1,0 +1,44 @@
+# The namespace is default-deny: the services may send to the Collector, and only the Collector may send to lgtm. Grafana (3000) is reached by
+# port-forward, which comes from the node and is not blocked.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-collector-only-from-the-services
+spec:
+  podSelector:
+    matchLabels:
+      app: otel-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: booking-service
+        - podSelector:
+            matchLabels:
+              app: audit-service
+        - podSelector:
+            matchLabels:
+              app: notification-service
+      ports:
+        - port: 4317
+        - port: 4318
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lgtm-only-from-the-collector
+spec:
+  podSelector:
+    matchLabels:
+      app: lgtm
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - port: 4318

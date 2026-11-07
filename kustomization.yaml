@@ -9,8 +9,11 @@ resources:
   - k8s/networkpolicy-postgres.yaml
   - k8s/networkpolicy-kafka-keycloak.yaml
   - k8s/networkpolicy-default-deny.yaml
+  - k8s/networkpolicy-telemetry.yaml
   - k8s/kafka.yaml
   - k8s/keycloak.yaml
+  - k8s/otel-collector.yaml
+  - k8s/lgtm.yaml
   - k8s/audit-service.yaml
   - k8s/booking-service.yaml
   - k8s/notification-service.yaml
@@ -31,6 +34,18 @@ configMapGenerator:
       - keycloak/realm-export.json
   # Addresses shared by the three services, by Service name. KEYCLOAK_ISSUER_URI is the PUBLIC name written in the token (a label that is only compared),
   # KEYCLOAK_JWK_SET_URI is where the keys are downloaded from (a real call), see decisions.md.
+  # The same files docker-compose.yml mounts for the telemetry stack.
+  - name: otel-collector-config
+    files:
+      - config.yaml=otel/collector-config.yaml
+  - name: grafana-dashboards
+    files:
+      - grafana/dashboards/slotwise.json
+      - grafana/dashboards/slotwise-metrics.json
+  - name: grafana-provisioning
+    files:
+      - grafana/provisioning/slotwise-dashboards.yaml
+      - slotwise-alerts.yaml=grafana/provisioning/alerting/slotwise-alerts.yaml
   - name: slotwise-config
     literals:
       - DB_HOST=postgres

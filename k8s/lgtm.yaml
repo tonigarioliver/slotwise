@@ -1,0 +1,71 @@
+# Grafana + Loki (logs) + Tempo (traces) + Prometheus (metrics) in one development image, as in docker-compose.yml. Only the Collector sends to it (4318);
+# you reach Grafana with `kubectl port-forward svc/lgtm 3000:3000` (admin/admin). Data is ephemeral (an emptyDir would add nothing: it dies with the Pod too).
+# Our dashboards and alert rules are the same files Compose mounts, turned into ConfigMaps by kustomization.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: lgtm
+spec:
+  selector:
+    app: lgtm
+  ports:
+    - {name: grafana, port: 3000}
+    - {name: otlp-http, port: 4318}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgtm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lgtm
+  template:
+    metadata:
+      labels:
+        app: lgtm
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: lgtm
+          image: grafana/otel-lgtm:0.37.0
+          imagePullPolicy: Never
+          # Measured with `crictl stats` on the node (working set ~730Mi with little data); the limit leaves room for the stores to grow. No CPU limit (it only throttles start-up).
+          resources:
+            requests:
+              memory: 768Mi
+              cpu: 250m
+            limits:
+              memory: 2Gi
+          ports:
+            - containerPort: 3000
+            - containerPort: 4318
+          # Four backends start inside this one container, so it takes a while.
+          startupProbe:
+            tcpSocket:
+              port: 3000
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+          volumeMounts:
+            - name: provisioning
+              mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/slotwise-dashboards.yaml
+              subPath: slotwise-dashboards.yaml
+              readOnly: true
+            - name: provisioning
+              mountPath: /otel-lgtm/grafana/conf/provisioning/alerting/slotwise-alerts.yaml
+              subPath: slotwise-alerts.yaml
+              readOnly: true
+            - name: dashboards
+              mountPath: /otel-lgtm/slotwise-dashboards
+              readOnly: true
+      volumes:
+        - name: provisioning
+          configMap:
+            name: grafana-provisioning
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards

@@ -1,0 +1,57 @@
+# The OpenTelemetry Collector, as in docker-compose.yml: the services speak OTLP to it (their default address in the image is http://otel-collector:4318,
+# so this Service name is all they need) and it forwards to lgtm. The pipeline is otel/collector-config.yaml, the same file Compose mounts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - {name: otlp-grpc, port: 4317}
+    - {name: otlp-http, port: 4318}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.163.1
+          # Copied into the node by scripts/kind-up.sh, never pulled.
+          imagePullPolicy: Never
+          # Working set ~116Mi measured with `crictl stats` (the image has no shell, so no cgroup counter from inside).
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+          args: ["--config=/etc/otelcol-contrib/config.yaml"]
+          ports:
+            - containerPort: 4317
+            - containerPort: 4318
+          # The image has no shell, but the kubelet can open a TCP connection by itself.
+          readinessProbe:
+            tcpSocket:
+              port: 4318
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol-contrib/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
