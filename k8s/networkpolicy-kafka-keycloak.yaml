@@ -1,0 +1,53 @@
+# Kafka: the three services use it, and the broker talks to itself (the controller quorum on 9093 and the advertised address kafka:9092).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kafka-only-from-its-clients
+spec:
+  podSelector:
+    matchLabels:
+      app: kafka
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: booking-service
+        - podSelector:
+            matchLabels:
+              app: audit-service
+        - podSelector:
+            matchLabels:
+              app: notification-service
+        - podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - port: 9092
+        - port: 9093
+---
+# Keycloak: booking and audit download the signing keys (JWK), notification calls the admin API. Tokens are obtained from outside (port-forward).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-only-from-its-clients
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: booking-service
+        - podSelector:
+            matchLabels:
+              app: audit-service
+        - podSelector:
+            matchLabels:
+              app: notification-service
+      ports:
+        - port: 8080
