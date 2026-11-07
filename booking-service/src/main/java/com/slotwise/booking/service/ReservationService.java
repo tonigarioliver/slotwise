@@ -4,6 +4,7 @@ import com.slotwise.booking.data.ReservationRepository;
 import com.slotwise.booking.model.Caller;
 import com.slotwise.booking.model.CreateReservationRequest;
 import com.slotwise.booking.model.ReservationDto;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,11 @@ public class ReservationService {
     }
 
     // With an Idempotency-Key a retry gets the stored answer back (replayed = true): nothing was created, so nothing is counted.
+    // Bulkhead: a create holds a primary-pool connection while it waits for the resource's FOR UPDATE lock, and that pool (10 connections by
+    // default) is shared with the outbox relay and the other writes. Past the limit (application.yml) the call is rejected before it takes a
+    // connection (BulkheadFullException, a 503 with Retry-After) and the client retries, safely if it sent an Idempotency-Key. Only calls through
+    // THIS method are covered: create(caller, request) above reaches it by self-invocation, which skips the proxy (it is only used by tests).
+    @Bulkhead(name = "reservationCreate")
     public IdempotentResult<ReservationDto> create(@NotNull Caller caller, @NotNull @Valid CreateReservationRequest request,
             @Nullable String idempotencyKey) {
         final String owner = resolveOwner(caller, request.ownerSubject());

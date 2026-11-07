@@ -83,6 +83,17 @@
             <version>3.50.0</version>
         </dependency>
 
+        <!-- Resilience: Bulkhead on the reservation create (see ReservationService). Resilience4j's annotations are Spring AOP aspects, and
+             the project had no AOP: spring-boot-starter-aspectj brings spring-aop and aspectjweaver. -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot4</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
+        </dependency>
+
         <!-- Fase 4 "Kafka" kickoff: reservation-created moves from Redis Pub/Sub (Fase 3) to
              a real Kafka topic, in-process producer + consumer, before touching the
              multi-service split. spring-boot-starter-kafka, not the bare spring-kafka

@@ -81,3 +81,13 @@ slotwise:
       url: jdbc:postgresql://${DB_REPLICA_HOST:localhost}:${DB_REPLICA_PORT:5433}/${DB_NAME:slotwise}
       username: ${DB_USER:slotwise}
       password: ${DB_PASSWORD:slotwise}
+
+# Resilience4j. reservationCreate: at most this many reservation creates at once (ReservationService). The primary pool has Hikari's default
+# of 10 connections, shared with the outbox relay and the other writes, so half of it at most; one more waits 100 ms for a place before being
+# rejected with a 503.
+resilience4j:
+  bulkhead:
+    instances:
+      reservationCreate:
+        max-concurrent-calls: 5
+        max-wait-duration: 100ms

@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -61,6 +63,9 @@ class ReservationControllerOwnerTest {
 
     @Autowired
     JdbcClient jdbcClient;
+
+    @Autowired
+    BulkheadRegistry bulkheadRegistry;
 
     private long resourceId;
 
@@ -228,6 +233,31 @@ class ReservationControllerOwnerTest {
         assertThat(idOf(retry)).isEqualTo(idOf(first));
         assertThat(this.jdbcClient.sql("SELECT count(*) FROM resources WHERE name = :n").param("n", name)
                 .query(Long.class).single()).isEqualTo(1);
+    }
+
+    // ---- Bulkhead: a limit on simultaneous creates, so a burst cannot take the whole primary pool ----
+
+    // The compartment is filled by taking all its permits (as if that many creates were stuck on the resource lock); the next one is turned away
+    // with a 503 before it touches the database, and once a place is free the same request goes through.
+    @Test
+    void whenTheReservationBulkheadIsFull_itIsA503WithRetryAfter_andNothingIsCreated() throws Exception {
+        final Bulkhead bulkhead = this.bulkheadRegistry.bulkhead("reservationCreate");
+        final int places = bulkhead.getBulkheadConfig().getMaxConcurrentCalls();
+        for (int i = 0; i < places; i++) {
+            assertThat(bulkhead.tryAcquirePermission()).isTrue();
+        }
+        try {
+            this.book(caller("sub-bob", "RESERVATION_USER"), "")
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(header().string("Retry-After", "1"));
+            assertThat(this.reservationsOf(this.resourceId)).isZero();
+        } finally {
+            for (int i = 0; i < places; i++) {
+                bulkhead.releasePermission();
+            }
+        }
+
+        this.book(caller("sub-bob", "RESERVATION_USER"), "").andExpect(status().isCreated());
     }
 
     // The Kubernetes-style probes and the build identity are the only public Actuator endpoints; nothing else of it is exposed.

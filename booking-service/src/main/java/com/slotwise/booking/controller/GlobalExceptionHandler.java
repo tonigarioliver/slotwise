@@ -5,8 +5,10 @@ import com.slotwise.booking.service.IdempotencyKeyReusedException;
 import com.slotwise.booking.service.ReservationConflictException;
 import com.slotwise.booking.service.ReservationOwnerNotAllowedException;
 import com.slotwise.booking.service.ResourceNotFoundException;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.stream.Collectors;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -49,6 +51,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleConflict(ReservationConflictException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiErrorResponse.builder().message(ex.getMessage()).build());
+    }
+
+    // The reservation Bulkhead is full (see ReservationService): nothing was created and nothing was stored, so the same request can be retried.
+    @ExceptionHandler(BulkheadFullException.class)
+    public ResponseEntity<ApiErrorResponse> handleBulkheadFull(BulkheadFullException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header(HttpHeaders.RETRY_AFTER, "1")
+                .body(ApiErrorResponse.builder().message("Too many reservations are being created right now, retry shortly").build());
     }
 
     @ExceptionHandler(IdempotencyKeyReusedException.class)
